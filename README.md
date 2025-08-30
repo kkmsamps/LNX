@@ -41,7 +41,7 @@ Download Sources: Use the provided update_sources.sh scripts to download all nec
 
 Unpack Sources: Use the unpack.sh scripts to extract all sources.
 
-Execute Build Scripts: Run the build scripts (add_packages_1.sh, add_packages_2.sh, etc.) in numerical order. These scripts are designed to be robust:
+Execute Build Scripts: Run the build scripts (BUILD_SYSTEM1, BUILD_SYSTEM2 etc.) in numerical order. These scripts are designed to be robust:
 
 They will stop immediately if an error occurs.
 
