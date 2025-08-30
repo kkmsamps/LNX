@@ -1,6 +1,81 @@
 # LNX
-LNX Linux
+LNX - A Minimalist Linux Project
+Philosophy
+LNX is a minimalist, source-based Linux distribution built upon the musl C library. The project aims to create a small-footprint, secure, and portable host operating system.
 
+The primary model for running applications is through rootless Podman containers, which minimizes the software installed and running on the host system itself. This provides a clean separation between the base system and user applications.
+
+A key goal is portability between the x86_64 and aarch64 architectures. The build scripts and kernel configuration are designed to be adaptable to both.
+
+Key Features
+This is not just a minimal base, but a fully functional system built from source, including:
+
+Core System: Based on the lightweight and secure musl libc.
+
+Custom Kernel: A custom-configured Linux 6.6 kernel.
+
+Container Runtime: A complete, rootless Podman stack with crun, conmon, and necessary networking components.
+
+Authentication: A modern and secure login stack using Linux-PAM and Shadow.
+
+Graphical Stack: A full, manually compiled X.org environment, including the server, libraries, and input drivers.
+
+Window Manager: A choice of classic, lightweight window managers like twm or Fluxbox, configured for a modern workflow.
+
+Audio: A functional "bare metal" ALSA sound system, configured with dmix for software mixing to support modern applications.
+
+Build Process
+The system is built from source using a series of sequential shell scripts.
+
+Prerequisites:
+
+A working Linux build host (e.g., Fedora Workstation) with the dependencies listed in the build scripts.
+
+A dedicated partition or disk image (formatted with ext4) to serve as the LNX root filesystem, mounted at /MAKE_LNX.
+
+Steps:
+
+Prepare Environment: Mount your target partition to /MAKE_LNX.
+
+Download Sources: Use the provided update_sources.sh scripts to download all necessary source code tarballs into /MAKE_LNX/SOURCE_CODE/.
+
+Unpack Sources: Use the unpack.sh scripts to extract all sources.
+
+Execute Build Scripts: Run the build scripts (add_packages_1.sh, add_packages_2.sh, etc.) in numerical order. These scripts are designed to be robust:
+
+They will stop immediately if an error occurs.
+
+They will pause for your review after each package is successfully built, allowing for careful monitoring.
+
+Booting
+This project focuses on building the root filesystem (rootfs) and all the necessary system software. Instructions for creating a bootable image (e.g., configuring a bootloader like GRUB for x86_64 or U-Boot for aarch64) are not included. The user is expected to handle the final steps of making the built system bootable on their target hardware or VM.
+
+⚠️ Disclaimer
+LNX is an experimental and educational project provided "as-is" without any warranty. Building and running a custom OS from scratch is a complex process. Be warned that mistakes can lead to data loss or system instability. Always work in a safe, backed-up environment.
+
+
+Some details if you get stucked:
+The process of building it is basically:
+Install a Linux of your choice, ie Fedora Workstation.
+mkdir /MAKE_LNX
+mount <your ext4 filesystem of choice to> /MAKE_LNX
+Add the depndendencies found in the header of BUILD_SYSTEM.sh
+Copy/paste the contents of BUILD_SYSTEM.sh, ie section for section. Start with the initial scripts to build the filesystem and adding scripts.
+Make sure packages.conf contains the correct package versions if you want to change anything. (Possibly break the system)
+Download software (to /MAKE_LNX/SOURCE_CODE/ with:
+./update_sources.sh
+./update_extra_sources.sh
+./unpack.sh
+./unpack2.sh
+Start compile the software with:
+vi BUILD_SYSTEM.sh -> build only one package at a time and make sure it really compiles without any errors!
+(The file BUILD_SYSTEM.sh implies that it could be run, witch currently is NOT the case)
+Finally, make the LNX core operating system bootable which is something you have to figure out yourself, instructions for this is NOT included, 
+only som ideas for you to get youreself started.
+
+
+
+SOME PLATFORM DETAILS:
 An Architectural Analysis of the LNX Cross-Compilation and System Build Process
 
 Section 1: Foundational Concepts of the LNX Build Environment
