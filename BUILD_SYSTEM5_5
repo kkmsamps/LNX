@@ -293,41 +293,41 @@ else
   echo "WARNING: /etc/profile.d/xorg.sh not found. Build may fail."
 fi
 
-#build_st_terminal
+build_st_terminal
 pause_for_review "st (Simple Terminal)"
 
-#build_gpg_stack
+build_gpg_stack
 pause_for_review "GPG Stack"
 
-#build_mksh
+build_mksh
 pause_for_review "mksh"
 
-#setup_go_environment
+setup_go_environment
 pause_for_review "Go Environment Setup"
 
-#build_conmon
+build_conmon
 pause_for_review "conmon"
 
-# NOT REALLY NEEDED ANYMORE
-#build_runc
-#pause_for_review "runc"
+## NOT REALLY NEEDED ANYMORE
+##build_runc
+##pause_for_review "runc"
 
-#build_grep
+build_grep
 pause_for_review "grep"
 
-#configure_container_defaults
+configure_container_defaults
 pause_for_review "Container Defaults Configuration"
 
-#build_cni_plugins
+build_cni_plugins
 pause_for_review "CNI Network Plugins"
 
-#build_podman
+build_podman
 pause_for_review "Podman"
 
-#build_yajl_manual
+build_yajl_manual
 pause_for_review "Yajl"
 
-#build_argp_standalone
+build_argp_standalone
 pause_for_review "argp-standalone"
 
 build_libcap

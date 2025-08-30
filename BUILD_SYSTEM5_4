@@ -195,7 +195,7 @@ build_auth_stack() {
 # LD_LIBRARY_PATH is not yet set:
 cp -f /usr/lib64/libpam.so.0 /usr/lib/
 cp -f /usr/lib64/libpam_misc.so.0 /usr/lib/
-cp -fdpr /usr/etc/l* /etc/
+cp -fdpr /usr/etc/l* /etc/ || true
   
   log_step "Auth Stack (Shadow - PAM aware)"
   cd /SOURCE_CODE/shadow
@@ -254,7 +254,7 @@ password        required        pam_unix.so     nullok
 # End /etc/pam.d/other
 EOF101
 
-#install -vdm755 /etc/pam.d
+install -vdm755 /etc/pam.d || true
 
 cat > /etc/pam.d/system-account << "EOF102"
 # Begin /etc/pam.d/system-account
@@ -436,7 +436,7 @@ fi
 # Temporarily set C++ include path for certain builds
 export CPLUS_INCLUDE_PATH=/build-tools/"$(uname -m)"-linux-musl/include/c++/14.1.0
 
-#build_dbus
+build_dbus
 pause_for_review "D-Bus"
 
 # --- System Setup ---
@@ -444,38 +444,38 @@ pause_for_review "D-Bus"
 #setxkbmap -model pc105 -layout se
 #pause_for_review "Locale and Keymap Setup"
 
-#build_iptables
+build_iptables
 pause_for_review "iptables"
 
-#build_alsa_stack
+build_alsa_stack
 pause_for_review "ALSA Stack"
 
-#configure_init_scripts
+configure_init_scripts
 pause_for_review "Init Scripts"
 
-#copy_user_configs
+copy_user_configs
 pause_for_review "User Configs"
 
-#fix_dbus_python
+fix_dbus_python
 pause_for_review "dbus-python fix"
 
-#install_fonts
+install_fonts
 pause_for_review "Fonts"
 
 # --- Podman and Auth Stack ---
-#setup_podman_prereqs
+setup_podman_prereqs
 pause_for_review "Podman Prerequisites"
 
-#build_auth_stack
+build_auth_stack
 pause_for_review "Authentication Stack (PAM, Shadow)"
 
 configure_auth_system
 pause_for_review "Authentication System Config"
 
-#build_xlockmore_pam
+build_xlockmore_pam
 pause_for_review "xlockmore (PAM)"
 
-#setup_linker_path
+setup_linker_path
 pause_for_review "System Linker Path"
 
 # Clean up environment at the end
