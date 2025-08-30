@@ -54,7 +54,10 @@ This project focuses on building the root filesystem (rootfs) and all the necess
 LNX is an experimental and educational project provided "as-is" without any warranty. Building and running a custom OS from scratch is a complex process. Be warned that mistakes can lead to data loss or system instability. Always work in a safe, backed-up environment.
 
 
+
+
 Some details if you get stucked:
+--------------------------------
 The process of building it is basically:
 Install a Linux of your choice, ie Fedora Workstation.
 mkdir /MAKE_LNX
@@ -75,9 +78,11 @@ only som ideas for you to get youreself started.
 
 
 
-SOME PLATFORM DETAILS:
-An Architectural Analysis of the LNX Cross-Compilation and System Build Process
 
+
+
+An Architectural Analysis of the LNX Cross-Compilation and System Build Process
+-------------------------------------------------------------------------------
 Section 1: Foundational Concepts of the LNX Build Environment
 
 To fully comprehend the mechanics of the LNX build script, it is essential to first establish a firm understanding of the foundational concepts that govern its architecture. The script's design is predicated on modern cross-compilation techniques that prioritize security, portability, and isolation without resorting to traditional, more cumbersome methods. This section delineates the core principles of the cross-compilation paradigm and the script's innovative chroot-less strategy.
