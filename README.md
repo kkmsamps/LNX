@@ -41,7 +41,8 @@ Download Sources: Use the provided update_sources.sh scripts to download all nec
 
 Unpack Sources: Use the unpack.sh scripts to extract all sources.
 
-Execute Build Scripts: Run the build scripts (BUILD_SYSTEM1, BUILD_SYSTEM2 etc.) in numerical order. These scripts are designed to be robust:
+Execute Build Scripts: Run the build scripts (BUILD_SYSTEM1, BUILD_SYSTEM2 etc.) in numerical order AFTER the first boot into the new OS. 
+These scripts are designed to be robust:
 
 They will stop immediately if an error occurs.
 
