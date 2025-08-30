@@ -1,0 +1,440 @@
+#!/bin/sh
+
+export XORG_PREFIX="/usr"                                         
+export XORG_CONFIG="--prefix=$XORG_PREFIX --sysconfdir=/etc --localstatedir=/var --disable-static"
+mkdir -p /SOURCE_CODE/PATCHES/
+
+patch_version=-1.14.10
+cd /SOURCE_CODE/flatpak$patch_version
+rm -rf build
+mkdir build
+cd build
+../configure --prefix=/usr --libdir=/usr/lib64 --sysconfdir=/etc --localstatedir=/var --mandir=/usr/man --enable-documentation=false --enable-gtk-doc=false
+make -j8                                                                                                                                                   
+mkdir LNX_PACKAGE
+make DESTDIR=/SOURCE_CODE/flatpak$patch_version/build/LNX_PACKAGE install
+cd LNX_PACKAGE                                                           
+tar cvf /SOURCE_CODE/PATCHES/flatpak.tar .
+                                          
+                           
+patch_version=-21.1.14
+cd /SOURCE_CODE/xorg-server$patch_version
+rm -rf build
+mkdir build
+cd    build
+mkdir LNX_PACKAGE
+meson setup .. --prefix=$XORG_PREFIX --localstatedir=/var -Dglamor=true -Dsecure-rpc=false -Dxkb_output_dir=/var/lib/xkb -Dudev=false -Dudev_kms=false -Dhal=false
+ninja                           
+DESTDIR=/SOURCE_CODE/xorg-server$patch_version/build/LNX_PACKAGE ninja install                      
+cd LNX_PACKAGE
+tar cvf /SOURCE_CODE/PATCHES/xorg-server.tar .     
+
+patch_version=-2.6.4
+cd /SOURCE_CODE/expat$patch_version                  
+mkdir LNX_PACKAGE
+make distclean                   
+./configure --prefix=/usr --disable-static                  
+make -j8
+make DESTDIR=/SOURCE_CODE/expat$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE
+tar cvf /SOURCE_CODE/PATCHES/expat.tar .
+
+patch_version=-2024.10
+cd /SOURCE_CODE/libostree$patch_version 
+make distclean  
+./configure --prefix=/usr --libdir=/usr/lib64 --sysconfdir=/etc --localstatedir=/var --enable-gtk-doc-html=no --enable-man=no
+make -j8
+make DESTDIR=/SOURCE_CODE/libostree$patch_version/LNX_PACKAGE install                                            
+cd LNX_PACKAGE                                                                                                                                                                                                          
+tar cvf /SOURCE_CODE/PATCHES/libostree.tar .
+ 
+
+patch_version=-1.37.0
+cd /SOURCE_CODE/busybox$patch_version
+make distclean           
+# Load default compilation config template:
+yes|make defconfig
+# CONFIG_TC must be no, otherwise networking error will prevent busybox to compuile on kernels > 6.8
+sed -i 's/CONFIG_TC=y/CONFIG_TC=n/g' .config
+make -j8
+make DESTDIR=/SOURCE_CODE/busybox$patch_version/LNX_PACKAGE install
+#cd LNX_PACKAGE  does not work for busybox, it will be in _install
+cd _install
+tar cvf /SOURCE_CODE/PATCHES/busybox.tar .
+
+
+# NEXT NEED binary "size" to compile....
+#patch_version=-5.2.37
+#cd /SOURCE_CODE/bash$patch_version 
+#make distclean                                        
+#./configure --prefix=/usr --enable-readline                                      
+#make -j8
+#make DESTDIR=/SOURCE_CODE/bash$patch_version/LNX_PACKAGE install
+#cd LNX_PACKAGE
+#tar cvf /SOURCE_CODE/PATCHES/bash.tar .
+
+patch_version=-0.11.0
+cd /SOURCE_CODE/bubblewrap$patch_version
+rm -rf build                                              
+mkdir build                                                                      
+cd    build          
+meson --prefix=/usr --buildtype=release .. -Drequire_userns=false
+ninja                                                  
+DESTDIR=/SOURCE_CODE/bubblewrap$patch_version/build/LNX_PACKAGE ninja install                                     
+cd LNX_PACKAGE                                                                                                     
+tar cvf /SOURCE_CODE/PATCHES/bubblewrap.tar .               
+
+patch_version=-6.5
+cd /SOURCE_CODE/ncurses$patch_version
+make distclean                       
+make clean                                                                       
+./configure --prefix=/usr --with-shared --with-cxx-shared --without-debug --without-ada --disable-stripping               
+make -j8
+make DESTDIR=/SOURCE_CODE/ncurses$patch_version/LNX_PACKAGE install         
+cd LNX_PACKAGE                                                                                                                                                   
+tar cvf /SOURCE_CODE/PATCHES/ncurses.tar . 
+                                                          
+patch_version=-5.40.0
+cd /SOURCE_CODE/perl$patch_version
+make distclean                                           
+# NOTE -des normal for stable release of perl, odd release needs -desDusedevel flag!
+sh Configure -des -Dprefix=/usr -Dcc=`uname -m`-lnx-linux-gnu-gcc -Dvendorprefix=/usr 
+make -j8
+make DESTDIR=/SOURCE_CODE/perl$patch_version/LNX_PACKAGE install                                                                 
+cd LNX_PACKAGE   
+rm -f *.0
+tar cvf /SOURCE_CODE/PATCHES/perl.tar .  
+
+patch_version=-3.8.4
+cd /SOURCE_CODE/gnutls$patch_version
+rm -rf build                                                                                       
+mkdir build                                                                                        
+cd build                                                                                           
+../configure --prefix=/usr --disable-rpath --with-included-libtasn1 --with-included-unistring --with-default-trust-store-pkcs11="pkcs11:"  --disable-doc
+make -j8
+make DESTDIR=/SOURCE_CODE/gnutls$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE                                                                                                               
+tar cvf /SOURCE_CODE/PATCHES/gnutls.tar .    
+
+patch_version=-3.13.1
+cd /SOURCE_CODE/Python$patch_version                                                     
+make distclean                                                             
+./configure --prefix=/usr --enable-optimizations                           
+make -j8
+make DESTDIR=/SOURCE_CODE/Python$patch_version/LNX_PACKAGE install                                   
+cd LNX_PACKAGE                          
+tar cvf /SOURCE_CODE/PATCHES/python.tar .
+
+patch_version=-2.13.5
+cd /SOURCE_CODE/libxml2$patch_version 
+make distclean   
+# Next step is a workaround for Pyhon 3.10, as libxml2 expects 3.1:
+#autoreconf -fiv                   
+./configure --prefix=/usr --sysconfdir=/etc --disable-static --with-history PYTHON=/usr/bin/python3
+make -j8
+make DESTDIR=/SOURCE_CODE/libxml2$patch_version/LNX_PACKAGE install                               
+cd LNX_PACKAGE                                                           
+tar cvf /SOURCE_CODE/PATCHES/libxml2.tar .
+
+patch_version=-8.45
+cd /SOURCE_CODE/pcre$patch_version                         
+rm -rf build
+mkdir build                       
+cd build                          
+export GCC_VERSION=$(ls /cross-tools/`uname -m`-lnx-linux-gnu/include/c++/)
+export CPLUS_INCLUDE_PATH=/cross-tools/`uname -m`-lnx-linux-gnu/include/c++/$GCC_VERSION:/usr/include
+../configure --prefix=/usr --enable-utf --enable-pcre16 --enable-pcre32 --enable-jit --enable-unicode-properties
+make -j8
+make DESTDIR=/SOURCE_CODE/pcre$patch_version/LNX_PACKAGE install
+export CPLUS_INCLUDE_PATH=/usr/include                            
+cd LNX_PACKAGE                                                                                                                       
+tar cvf /SOURCE_CODE/PATCHES/pcre.tar .
+
+
+patch_version=-2.83.2
+cd /SOURCE_CODE/glib$patch_version 
+rm -rf build                              
+mkdir build                                                                
+cd    build                                                    
+# If meson (below) fails with ...unknown archive format pcre2....bz2 just move into that folder and unzip the
+# pcre2....bz2 file with bunzip2 and untar the file and remove the bz2 file and create a gzip file. Now meson will work
+meson --prefix=/usr --buildtype=release -Dman=false .. 
+ninja                                                               
+DESTDIR=/SOURCE_CODE/glib$patch_version/build/LNX_PACKAGE ninja install 
+cd LNX_PACKAGE                                            
+tar cvf /SOURCE_CODE/PATCHES/glib.tar .     
+
+patch_version=-3.0.15              
+cd /SOURCE_CODE/openssl$patch_version 
+make distclean                                                
+./config --prefix=/usr --openssldir=/etc/ssl --libdir=lib shared zlib-dynamic
+make -j8
+make DESTDIR=/SOURCE_CODE/openssl$patch_version/LNX_PACKAGE install                                           
+cd LNX_PACKAGE                                                    
+tar cvf /SOURCE_CODE/PATCHES/openssl.tar . 
+                                                 
+patch_version=-1.64.0
+cd /SOURCE_CODE/nghttp2$patch_version
+make distclean                               
+./configure --prefix=/usr --disable-static
+make -j8
+make DESTDIR=/SOURCE_CODE/nghttp2$patch_version/LNX_PACKAGE install            
+cd LNX_PACKAGE                            
+tar cvf /SOURCE_CODE/PATCHES/nghttp2.tar .
+
+patch_version=-1.6.3
+cd /SOURCE_CODE/libksba$patch_version 
+make distclean                               
+./configure --prefix=/usr
+make -j8
+make DESTDIR=/SOURCE_CODE/libksba$patch_version/LNX_PACKAGE install                      
+cd LNX_PACKAGE                                                   
+tar cvf /SOURCE_CODE/PATCHES/libksba.tar .
+                                   
+patch_version=-2.4.0 
+cd /SOURCE_CODE/gnupg$patch_version
+make distclean                               
+#fixa en bugg, l..sning fr..n LFS
+sed -e '/ks_ldap_free_state/i #if USE_LDAP' -e '/ks_get_state =/a #endif' -i dirmngr/server.c
+./configure --prefix=/usr           
+make -j8
+make DESTDIR=/SOURCE_CODE/gnupg$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE                                                                                                                       
+tar cvf /SOURCE_CODE/PATCHES/gnupg.tar .
+
+patch_version=-2.47.1
+cd /SOURCE_CODE/git$patch_version 
+make distclean                               
+make configure                                                                              
+./configure --prefix=/usr --disable-static   
+make -j8                                 
+make DESTDIR=/SOURCE_CODE/git$patch_version/LNX_PACKAGE install              
+cd LNX_PACKAGE
+tar cvf /SOURCE_CODE/PATCHES/git.tar .     
+
+patch_version=-4.19.0
+cd /SOURCE_CODE/libtasn1$patch_version 
+make distclean                                                                                                
+./configure --prefix=/usr --disable-doc
+make -j8
+make DESTDIR=/SOURCE_CODE/libtasn1$patch_version/LNX_PACKAGE install      
+cd LNX_PACKAGE                                                       
+tar cvf /SOURCE_CODE/PATCHES/libtasn1.tar .                
+
+patch_version=-1.22.0
+cd /SOURCE_CODE/unbound$patch_version 
+make distclean                    
+./configure --prefix=/usr --sysconfdir=/etc --disable-static --with-pidfile=/run/unbound.pid 
+make -j8
+make DESTDIR=/SOURCE_CODE/unbound$patch_version/LNX_PACKAGE install   
+cd LNX_PACKAGE                     
+tar cvf /SOURCE_CODE/PATCHES/unbound.tar .                       
+
+patch_version=-
+cd /SOURCE_CODE/nmap
+./configure --prefix=/usr  --without-zenmap --without-ncat --without-ndiff
+make -j8
+make DESTDIR=/SOURCE_CODE/nmap$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE                                                                                                  
+tar cvf /SOURCE_CODE/PATCHES/nmap.tar . 
+
+patch_version=-
+cd /SOURCE_CODE/pulseaudio
+rm -rf build                                                                                                           
+mkdir build                                                                                                            
+cd build                                                                                                               
+meson setup --prefix=/usr --buildtype=release -Ddatabase=simple -Ddoxygen=false -Dtests=false  -Dbluez5=disabled ..    
+ninja -j8
+DESTDIR=/SOURCE_CODE/pulseaudio/build/LNX_PACKAGE ninja install
+cd LNX_PACKAGE                              
+tar cvf /SOURCE_CODE/PATCHES/pulseaudio.tar .   
+
+
+
+###
+### LNX 2025.6:
+###
+
+patch_version=-5.40.2
+cd /SOURCE_CODE/perl$patch_version
+make distclean      
+# NOTE -des normal for stable release of perl, odd release needs -desDusedevel flag!
+sh Configure -des -Dprefix=/usr -Dcc=`uname -m`-lnx-linux-gnu-gcc -Dvendorprefix=/usr
+make -j8      
+make DESTDIR=/SOURCE_CODE/perl$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE
+rm -f *.0                                                        
+tar cvf /SOURCE_CODE/PATCHES/perl.tar .
+
+patch_version=-3.8.0
+cd /SOURCE_CODE/libarchive$patch_version 
+make distclean 
+# FROM LFS: First, adapt the package to changes in glibc-2.36 ->:
+sed '/linux\/fs\.h/d' -i libarchive/archive_read_disk_posix.c
+./configure --prefix=/usr --disable-static
+make -j8                                                                                                               
+make DESTDIR=/SOURCE_CODE/libarchive$patch_version/LNX_PACKAGE install     
+cd LNX_PACKAGE                                                             
+tar cvf /SOURCE_CODE/PATCHES/libarchive.tar .                             
+
+patch_version=-2.14.3 
+cd /SOURCE_CODE/libxml2$patch_version 
+make distclean  
+# Next step is a workaround for Pyhon 3.10, as libxml2 expects 3.1: 
+#autoreconf -fiv  
+./configure --prefix=/usr --sysconfdir=/etc --disable-static --with-history PYTHON=/usr/bin/python3 
+make -j8 
+make DESTDIR=/SOURCE_CODE/libxml2$patch_version/LNX_PACKAGE install 
+cd LNX_PACKAGE 
+tar cvf /SOURCE_CODE/PATCHES/libxml2.tar . 
+                                                       
+patch_version=-1.1.43
+cd /SOURCE_CODE/libxslt$patch_version 
+# Next step is a workaround for Pyhon 3.10, as libxslt expects 3.1:
+autoreconf -fiv 
+make distclean 
+./configure --prefix=/usr 
+make -j8
+make DESTDIR=/SOURCE_CODE/libxslt$patch_version/LNX_PACKAGE install 
+cd LNX_PACKAGE                                                                                     
+tar cvf /SOURCE_CODE/PATCHES/libxslt.tar .    
+
+# THIS WILL NOT COMPILE FOR SOME REASON, IGNORE glslan 15.3 for now...
+#patch_version=-15.3.0
+#cd /SOURCE_CODE/glslang$patch_version
+#rm -rf build
+#mkdir build 
+#cd    build 
+#mkdir LNX_PACKAGE
+#export GCC_VERSION=$(ls /cross-tools/`uname -m`-lnx-linux-gnu/include/c++/)
+#export CPLUS_INCLUDE_PATH=/cross-tools/`uname -m`-lnx-linux-gnu/include/c++/$GCC_VERSION
+#cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DALLOW_EXTERNAL_SPIRV_TOOLS=ON -DBUILD_SHARED_LIBS=ON -DGLSLANG_TESTS=ON -G Ninja .. 
+#ninja 
+#DESTDIR=/SOURCE_CODE/glslang$patch_version/build/LNX_PACKAGE ninja install
+#cd LNX_PACKAGE 
+#tar cvf /SOURCE_CODE/PATCHES/glslang.tar . 
+
+patch_version=-5.8.1
+cd /SOURCE_CODE/xz$patch_version
+make distclean
+./configure --prefix=/usr --disable-static  
+make -j8
+make DESTDIR=/SOURCE_CODE/xz$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE
+tar cvf /SOURCE_CODE/PATCHES/xz.tar .
+
+patch_version=-2.41 
+cd /SOURCE_CODE/util-linux$patch_version
+make distclean
+./configure --prefix=/usr --bindir=/usr/bin --libdir=/usr/lib --sbindir=/usr/sbin --disable-chfn-chsh --disable-login --disable-nologin --disable-su --disable-setpriv --disable-runuser --disable-pylibmount --disable-static --without-systemdsystemunitdir 
+make -j8
+make DESTDIR=/SOURCE_CODE/util-linux$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE  
+tar cvf /SOURCE_CODE/PATCHES/util-linux.tar .
+
+patch_version=-8.13.0
+cd /SOURCE_CODE/curl$patch_version 
+make distclean
+./configure --prefix=/usr --with-openssl --enable-threaded-resolver --with-ca-path=/etc/ssl/certs
+make -j8
+make DESTDIR=/SOURCE_CODE/curl$patch_version/LNX_PACKAGE install  
+cd LNX_PACKAGE 
+tar cvf /SOURCE_CODE/PATCHES/curl.tar .
+     
+patch_version=-0.193
+cd /SOURCE_CODE/elfutils$patch_version
+make distclean
+./configure --prefix=/usr --disable-debuginfod --disable-libdebuginfod
+make -j8
+make check -j8
+make DESTDIR=/SOURCE_CODE/elfutils$patch_version/LNX_PACKAGE install  
+install -vm644 config/libelf.pc /SOURCE_CODE/elfutils$patch_version/LNX_PACKAGE/usr/lib/pkgconfig
+cd LNX_PACKAGE 
+tar cvf /SOURCE_CODE/PATCHES/elfutils.tar . 
+
+patch_version=-2.76
+cd /SOURCE_CODE/libcap$patch_version
+make distclean
+#make prefix=/usr/lib 
+#make  
+# K..r om kompileringen f..r att slippa:
+#/bin/sh: ./mkcapshdoc.sh: not found. -> #make[1]: *** [Makefile:49: capshdoc.c.cf] Error 127
+make prefix=/usr/lib
+make test
+# DET H..R FUNGERAR: 
+make DESTDIR=/SOURCE_CODE/libcap$patch_version/LNX_PACKAGE prefix=/usr/lib install  
+# NEXT LINE IS REMOVED 20250101, libcap should not be in /usr
+#make prefix=/usr install
+cd LNX_PACKAGE 
+tar cvf /SOURCE_CODE/PATCHES/libcap.tar . 
+
+patch_version=-2.13.3
+cd /SOURCE_CODE/freetype$patch_version
+make distclean
+./configure --prefix=/usr 
+make -j8
+make DESTDIR=/SOURCE_CODE/freetype$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE 
+tar cvf /SOURCE_CODE/PATCHES/freetype.tar .
+ 
+
+patch_version=-1.55
+cd /SOURCE_CODE/libgpg-error$patch_version
+make distclean                                       
+./configure --prefix=/usr         
+make -j8
+make DESTDIR=/SOURCE_CODE/libgpg-error$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE                    
+tar cvf /SOURCE_CODE/PATCHES/libgpg-error.tar .
+
+patch_version=-3.0.2
+cd /SOURCE_CODE/libassuan$patch_version
+make distclean
+./configure --prefix=/usr         
+make -j8
+make  DESTDIR=/SOURCE_CODE/libassuan$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE  
+tar cvf /SOURCE_CODE/PATCHES/libassuan.tar .
+
+patch_version=-1.11.1                                                                        
+cd /SOURCE_CODE/libgcrypt$patch_version      
+make distclean
+./configure --prefix=/usr   
+make -j8
+make DESTDIR=/SOURCE_CODE/libgcrypt$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE
+tar cvf /SOURCE_CODE/PATCHES/libgcrypt.tar .
+
+
+patch_version=-2.5.7   
+cd /SOURCE_CODE/gnupg$patch_version  
+make distclean   
+#fixa en bugg, l..sning fr..n LFS    
+sed -e '/ks_ldap_free_state/i #if USE_LDAP' -e '/ks_get_state =/a #endif' -i dirmngr/server.c
+./configure --prefix=/usr              
+make -j8  
+make DESTDIR=/SOURCE_CODE/gnupg$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE 
+tar cvf /SOURCE_CODE/PATCHES/gnupg.tar .
+
+patch_version=-8.14.1
+cd /SOURCE_CODE/curl$patch_version
+make distclean
+./configure --prefix=/usr --with-openssl --enable-threaded-resolver --with-ca-path=/etc/ssl/certs
+make -j8
+make DESTDIR=/SOURCE_CODE/curl$patch_version/LNX_PACKAGE install
+cd LNX_PACKAGE
+tar cvf /SOURCE_CODE/PATCHES/curl.tar .
+
+
+            
+#                                                         
+# TO APPLY PATCHES ON TARGET, DO LIKE THIS:               
+#                                                         
+# Boot into LNX destination OS and mount the PATCHES disk:
+# i.e. mount /dev/nvme0n1p4 /mnt                   
+# tar xvf /mnt/SOURCE_CODE/PATCHES/flatpak.tar -C /
+
+
+                                                          
+ 

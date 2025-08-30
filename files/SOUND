@@ -1,0 +1,7 @@
+ modprobe soundcore
+mdev -s
+ modprobe snd-usb-audio
+mdev -s
+alsactl init
+alsactl -L store
+

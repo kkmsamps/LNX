@@ -1,0 +1,207 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+build_xml_parser() {
+  log_step "Perl XML-Parser"
+  cd /SOURCE_CODE/XML-Parser
+  perl Makefile.PL
+  make
+  make test
+  make install
+}
+
+build_intltool() {
+  log_step "intltool"
+  cd /SOURCE_CODE/intltool
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_nasm() {
+  log_step "NASM (Netwide Assembler)"
+  cd /SOURCE_CODE/nasm
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libjpeg_turbo() {
+  log_step "libjpeg-turbo"
+  cd /SOURCE_CODE/libjpeg-turbo
+  rm -rf build
+  mkdir build
+  cd build
+  cmake -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_BUILD_TYPE=RELEASE \
+        -DENABLE_STATIC=FALSE \
+	-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_DOCDIR=/usr/share/doc/libjpeg-turbo \
+        -DCMAKE_INSTALL_DEFAULT_LIBDIR=lib \
+        ..
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_shared_mime_info() {
+  log_step "shared-mime-info"
+  cd /SOURCE_CODE/shared-mime-info
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release ..
+  ninja
+  ninja install
+}
+
+build_libpng() {
+  log_step "libpng"
+  cd /SOURCE_CODE/libpng
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_gdk_pixbuf() {
+  log_step "gdk-pixbuf"
+  cd /SOURCE_CODE/gdk-pixbuf
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release -Dman=false -Dtests=false \
+        --libdir=/usr/lib \
+        --sysconfdir=/etc \
+        --mandir=/usr/man ..
+  ninja
+  ninja install
+}
+
+build_yaml() {
+  log_step "libyaml"
+  cd /SOURCE_CODE/yaml
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libfuse() {
+  log_step "libfuse"
+  # Also critical for podman (but not for flatpak).
+  cd /SOURCE_CODE/libfuse
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release \
+        -Dexamples=false \
+        -Dtests=false \
+        -Ddisable-mtab=false \
+        -Dutils=true \
+        ..
+  ninja
+  ninja install
+}
+
+build_glib() {
+  log_step "GLib (rebuild)"
+  # Set include path for this build
+  export CPLUS_INCLUDE_PATH=/usr/include
+  
+  cd /SOURCE_CODE/glib
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr \
+              --buildtype=release \
+              -Dman=false \
+              ..
+  ninja
+  ninja install
+  
+  # Clean up environment
+  unset CPLUS_INCLUDE_PATH
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the GUI and system libraries build process..."
+
+# Load the environment variables that were created in a previous script
+if [ -f /etc/profile.d/xorg.sh ]; then
+  # shellcheck source=/dev/null
+  . /etc/profile.d/xorg.sh
+  log_step "Sourced X.org environment variables."
+else
+  echo "WARNING: /etc/profile.d/xorg.sh not found. Build may fail."
+fi
+
+build_xml_parser
+pause_for_review "Perl XML-Parser"
+
+build_intltool
+pause_for_review "intltool"
+
+build_nasm
+pause_for_review "NASM"
+
+build_libjpeg_turbo
+pause_for_review "libjpeg-turbo"
+
+build_shared_mime_info
+pause_for_review "shared-mime-info"
+
+build_libpng
+pause_for_review "libpng"
+
+build_gdk_pixbuf
+pause_for_review "gdk-pixbuf"
+
+build_yaml
+pause_for_review "libyaml"
+
+build_libfuse
+pause_for_review "libfuse"
+
+## ALREADY BUILT...
+#build_glib
+#pause_for_review "GLib"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"
+

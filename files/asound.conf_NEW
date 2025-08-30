@@ -1,0 +1,64 @@
+# ===============================================================
+# asound.conf: Optimerad för låg latency, full-duplex och delad åtkomst (dmix/dsnoop)
+# ===============================================================
+
+# Ett alias för vårt hårdvarukort för att göra resten enklare
+pcm.hw_card {
+    type hw
+    card 0
+}
+ctl.hw_card {
+    type hw
+    card 0
+}
+
+# 1. DEFINIERA EN DELAD UPPSpelningSENHET (dmix) - TUNED FOR LOW LATENCY
+pcm.dmix_out {
+    type dmix
+    ipc_key 1024      # Unikt ID för denna mixer
+    slave {
+        pcm "hw_card"
+        # ---- HÄR ÄR OPTIMERINGEN ----
+        # Mindre värden här = lägre latency, men högre CPU-last.
+        # Experimentera med dessa värden. 512/2048 är en bra start.
+        period_size 512
+        buffer_size 2048
+        # ----------------------------
+        rate 48000
+        channels 2
+    }
+}
+
+# 2. DEFINIERA EN DELAD INSPELNINGSENHET (dsnoop)
+pcm.dsnoop_in {
+    type dsnoop
+    ipc_key 1025      # Unikt ID, måste skilja sig från dmix
+    slave {
+        pcm "hw_card"
+        rate 48000
+        channels 2
+    }
+}
+
+# 3. KOMBINERA INSPELNING OCH UPPSPELNING TILL EN DUPLEX-ENHET
+# Detta är vad Ardour kommer att använda. "asym" betyder att uppspelning
+# och inspelning hanteras av olika (asymmetriska) under-enheter.
+pcm.duplex {
+    type asym
+    playback.pcm "dmix_out"
+    capture.pcm "dsnoop_in"
+}
+
+# 4. SÄTT VÅR NYA DUPLEX-ENHET SOM SYSTEM-STANDARD
+# Alla program som frågar efter "default" kommer nu att använda vår
+# låg-latency, delade duplex-enhet.
+pcm.!default {
+    type plug
+    slave.pcm "duplex"
+}
+
+# Se till att volymkontroller (amixer) fortfarande pratar direkt med hårdvaran.
+ctl.!default {
+    type hw
+    card 0
+}

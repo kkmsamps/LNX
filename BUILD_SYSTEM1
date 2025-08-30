@@ -1,0 +1,145 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+build_bison() {
+  log_step "Bison"
+  cd /SOURCE_CODE/bison
+  # 'make distclean' can sometimes be too aggressive. A simple 'make clean'
+  # might be safer if you encounter issues.
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  # Note: DESTDIR is for staging, not a standard final install.
+  # If $LNX is your final root, this is correct for cross-compiling.
+  make DESTDIR="$LNX" install
+}
+
+build_flex() {
+  log_step "Flex"
+  cd /SOURCE_CODE/flex
+  # ./autogen.sh is usually only needed if 'configure' is missing.
+  [ ! -f configure ] && ./autogen.sh
+  ./configure --prefix=/usr
+  # 'touch' is a workaround for timestamp issues, often not needed.
+  touch src/scan.c
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_file() {
+  log_step "File"
+  cd /SOURCE_CODE/file
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_gawk() {
+  log_step "Gawk"
+  cd /SOURCE_CODE/gawk
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libffi() {
+  log_step "LibFFI"
+  cd /SOURCE_CODE/libffi
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_ncurses() {
+  log_step "Ncurses"
+  cd /SOURCE_CODE/ncurses
+  make distclean || true
+  ./configure --prefix=/usr \
+              --with-shared \
+              --with-cxx-shared \
+              --without-debug \
+              --without-ada \
+              --without-cxx-binding \
+              --disable-stripping
+  make -j$LNX_CPU_CORES
+  make install
+
+  # Create compatibility symlinks for ncurses
+  log_step "Ncurses (Creating symlinks)"
+  cd /usr/lib
+  ln -sf libncursesw.so.6 libtinfo.so.6
+  ln -sf libncursesw.so.6 libtinfo.so
+  ln -sf libncursesw.so.6 libncurses.so
+  ln -sf libncursesw.so.6 libncurses.so.6
+}
+
+build_python() {
+  log_step "Python"
+  cd /SOURCE_CODE/Python
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the main build process..."
+
+build_bison
+pause_for_review "Bison"
+
+build_flex
+pause_for_review "Flex"
+
+build_file
+pause_for_review "File"
+
+build_gawk
+pause_for_review "Gawk"
+
+build_libffi
+pause_for_review "LibFFI"
+
+build_ncurses
+pause_for_review "Ncurses"
+
+build_python
+pause_for_review "Python"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"

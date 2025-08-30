@@ -1,0 +1,26 @@
+--- libstdc++-v3/include/tr1/cfenv	2025-07-02 07:28:23.446960877 +0200
++++ libstdc++-v3/include/tr1/cfenv	2025-07-02 07:25:46.517707810 +0200
+@@ -60,6 +60,23 @@
+ namespace tr1
+ {
+   // types
++  using ::fenv_t;
++  using ::fexcept_t;
++
++  // functions
++  using ::feclearexcept;
++  using ::fegetexceptflag;
++  using ::feraiseexcept;
++  using ::fesetexceptflag;
++  using ::fetestexcept;
++
++  using ::fegetround;
++  using ::fesetround;
++
++  using ::fegetenv;
++  using ::feholdexcept;
++  using ::fesetenv;
++  using ::feupdateenv;
+ }
+ 
+ _GLIBCXX_END_NAMESPACE_VERSION

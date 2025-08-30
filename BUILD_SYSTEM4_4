@@ -1,0 +1,155 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+build_mtdev() {
+  log_step "mtdev"
+  cd /SOURCE_CODE/mtdev
+  make distclean || true
+  ./configure --prefix=/usr --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libevdev() {
+  log_step "libevdev"
+  cd /SOURCE_CODE/libevdev
+  # The original script used autotools; meson is commented out.
+  # rm -rf build
+  # cd build
+  # meson setup .. --prefix=$XORG_PREFIX --buildtype=release -Ddocumentation=disabled
+  # ninja
+  # ninja install
+  ./configure $XORG_CONFIG
+  make
+  make install
+}
+
+build_xf86_input_evdev() {
+  log_step "xf86-input-evdev"
+  cd /SOURCE_CODE/xf86-input-evdev
+  ./configure $XORG_CONFIG
+  make
+  make install
+}
+
+build_xf86_input_mouse() {
+  log_step "xf86-input-mouse"
+  cd /SOURCE_CODE/xf86-input-mouse
+  ./configure $XORG_CONFIG
+  make
+  make install
+}
+
+build_xf86_input_keyboard() {
+  log_step "xf86-input-keyboard"
+  cd /SOURCE_CODE/xf86-input-keyboard
+  ./configure $XORG_CONFIG
+  make
+  make install
+}
+
+build_xf86_input_synaptics() {
+  log_step "xf86-input-synaptics"
+  cd /SOURCE_CODE/xf86-input-synaptics
+  ./configure $XORG_CONFIG
+  make
+  make install
+}
+
+build_twm() {
+  log_step "TWM (Tab Window Manager)"
+  cd /SOURCE_CODE/twm
+  # Modify Makefile template to set the correct resource directory
+  sed -i -e '/^rcdir =/s,^\(rcdir = \).*,\1/etc/X11/app-defaults,' src/Makefile.in
+  ./configure $XORG_CONFIG
+  make
+  make install
+}
+
+build_xinit() {
+  log_step "xinit"
+  cd /SOURCE_CODE/xinit
+  ./configure $XORG_CONFIG --with-xinitdir=/etc/X11/app-defaults
+  make
+  make install
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting X.org input drivers and core apps build process..."
+
+
+# Load the environment variables that were created in a previous script
+if [ -f /etc/profile.d/xorg.sh ]; then
+  # shellcheck source=/dev/null
+  . /etc/profile.d/xorg.sh
+  log_step "Sourced X.org environment variables."
+else
+  echo "WARNING: /etc/profile.d/xorg.sh not found. Build may fail."
+  # Define a fallback for XORG_CONFIG to prevent the script from failing immediately
+  export XORG_CONFIG="--prefix=/usr --sysconfdir=/etc --localstatedir=/var --disable-static"
+fi
+
+# --- Input Device Libraries and Drivers ---
+build_mtdev
+pause_for_review "mtdev"
+
+build_libevdev
+pause_for_review "libevdev"
+
+## SHOULD THIS REALLY BE BUILT in 2025.10_musl 
+#build_xf86_input_evdev
+#pause_for_review "xf86-input-evdev"
+
+build_xf86_input_mouse
+pause_for_review "xf86-input-mouse"
+
+build_xf86_input_keyboard
+pause_for_review "xf86-input-keyboard"
+
+build_xf86_input_synaptics
+pause_for_review "xf86-input-synaptics"
+
+# --- Core X Applications ---
+build_twm
+pause_for_review "TWM"
+
+build_xinit
+pause_for_review "xinit"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"
+

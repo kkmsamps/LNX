@@ -1,0 +1,266 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+build_libxcvt() {
+  log_step "libxcvt"
+  cd /SOURCE_CODE/libxcvt
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=$XORG_PREFIX --buildtype=release ..
+  ninja
+  ninja install
+}
+
+build_xcb_util() {
+  log_step "xcb-util"
+  cd /SOURCE_CODE/xcb-util
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_xcb_util_image() {
+  log_step "xcb-util-image"
+  cd /SOURCE_CODE/xcb-util-image
+  make distclean || true
+  XCB_UTIL_LIBS="-I/usr/lib" XCB_UTIL_CLGAGS="-I/usr/lib" ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_xcb_util_keysyms() {
+  log_step "xcb-util-keysyms"
+  cd /SOURCE_CODE/xcb-util-keysyms
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_xcb_util_renderutil() {
+  log_step "xcb-util-renderutil"
+  cd /SOURCE_CODE/xcb-util-renderutil
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_xcb_util_wm() {
+  log_step "xcb-util-wm"
+  cd /SOURCE_CODE/xcb-util-wm
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_xcb_util_cursor() {
+  log_step "xcb-util-cursor"
+  cd /SOURCE_CODE/xcb-util-cursor
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libdrm() {
+  log_step "libdrm"
+  cd /SOURCE_CODE/libdrm
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix="$XORG_PREFIX" \
+              --buildtype=release \
+              -Dudev=true \
+              -Dvalgrind=disabled \
+              ..
+  ninja
+  ninja install
+}
+
+build_mako() {
+  log_step "Mako (Python Template Engine)"
+  cd /SOURCE_CODE/Mako
+  pip3 install --no-cache-dir --no-user .
+}
+
+build_spirv_llvm_translator() {
+  log_step "SPIRV-LLVM-Translator"
+  # Set environment for this specific build
+  export CPLUS_INCLUDE_PATH=/build-tools/$(uname -m)-linux-musl/include/c++/14.1.0
+
+  cd /SOURCE_CODE/SPIRV-LLVM-Translator
+  rm -rf build
+  mkdir build
+  cd build
+#  cmake -DCMAKE_INSTALL_PREFIX=/usr \
+#        -DCMAKE_BUILD_TYPE=Release \
+#        -DBUILD_SHARED_LIBS=ON \
+#        -DCMAKE_SKIP_INSTALL_RPATH=ON \
+#        -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR=/usr \
+#        -G Ninja ..
+  #ninja
+  #ninja install
+
+  # Clean up environment
+#  unset CPLUS_INCLUDE_PATH
+}
+
+build_xbitmaps() {
+  log_step "xbitmaps"
+  cd /SOURCE_CODE/xbitmaps
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make install
+}
+
+build_libpng() {
+  log_step "libpng"
+  cd /SOURCE_CODE/libpng
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_xclock() {
+  log_step "xclock"
+  cd /SOURCE_CODE/xclock
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_mesa() {
+  log_step "Mesa"
+  cd /SOURCE_CODE/mesa
+  unset CXX CPP CC CFLAGS CPPFLAGS CXXFLAGS LDFLAGS
+  export CFLAGS="-isystem /$(uname -m)-linux-musl-native/include"
+  export CXXFLAGS="-isystem /$(uname -m)-linux-musl-native/include/c++/11.2.1 -isystem /$(uname -m)-linux-musl-native/include/c++/11.2.1/$(uname -m)-linux-musl"
+  . /etc/profile.d/xorg.sh
+  # Work around a specific Mako check bug in this specific version:
+  sed -i '935s/^/#/' meson.build
+  pip3 install PyYAML
+  rm -rf build
+  mkdir build
+  cd build
+  # NOTE, gallium-driver i915 CANNOT build for non x86 hardware. Add it for intel machines!
+  meson setup \
+ 	--prefix=$XORG_PREFIX \
+	--buildtype=release \
+	-Dplatforms=x11 \
+	-Dglx=dri \
+	-Dgallium-drivers=virgl,swrast,iris \
+	-Dvalgrind=disabled \
+	-Dlibunwind=disabled \
+	-Dllvm=disabled \
+	-Dvulkan-drivers=intel \
+	..
+ ninja
+ ninja install
+#env
+}
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the X.org libraries and components build process..."
+
+# Load the environment variables that were created in the previous script
+if [ -f /etc/profile.d/xorg.sh ]; then
+  # shellcheck source=/dev/null
+  . /etc/profile.d/xorg.sh
+  log_step "Sourced X.org environment variables."
+else
+  echo "WARNING: /etc/profile.d/xorg.sh not found. Build may fail."
+fi
+
+# Temporarily set C++ include path for certain builds
+export CPLUS_INCLUDE_PATH=/build-tools/$(uname -m)-linux-musl/include/c++/14.1.0:/build-tools/lib/gcc/$(uname -m)-linux-musl/14.1.0/plugin/include
+
+build_libxcvt
+pause_for_review "libxcvt"
+
+build_xcb_util
+pause_for_review "xcb-util"
+
+## Thismay never have been build with musl... Cannot find xcb-util PKG-CONFIG file, whis is not build...
+# build_xcb_util_image
+# pause_for_review "xcb-util-image"
+
+build_xcb_util_keysyms
+pause_for_review "xcb-util-keysyms"
+
+build_xcb_util_renderutil
+pause_for_review "xcb-util-renderutil"
+
+build_xcb_util_wm
+pause_for_review "xcb-util-wm"
+
+## May never have been built with musl
+# build_xcb_util_cursor
+# pause_for_review "xcb-util-cursor"
+
+build_libdrm
+pause_for_review "libdrm"
+
+build_mako
+pause_for_review "Mako"
+
+## May never have been built with musl
+#build_spirv_llvm_translator
+# pause_for_review "SPIRV-LLVM-Translator"
+
+build_xbitmaps
+pause_for_review "xbitmaps"
+
+build_libpng
+pause_for_review "libpng"
+
+build_xclock
+pause_for_review "xclock"
+
+# Clean up environment at the end
+unset CPLUS_INCLUDE_PATH
+
+build_mesa
+pause_for_review "Mesa"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"
+

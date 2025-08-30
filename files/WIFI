@@ -1,0 +1,8 @@
+
+modprobe iwlwifi
+sleep 2
+ifconfig wlan0 up
+wpa_supplicant -Dnl80211 -iwlan0 -c/etc/sysconfig/wpa_supplicant-wlan0.conf &
+udhcpc -i wlan0 
+/etc/rc.d/rc.iptables 
+

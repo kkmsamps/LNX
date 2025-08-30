@@ -1,0 +1,109 @@
+GENERAL SECURITY INFORMATION:
+=============================
+Before using LNX, update all flatpaks with:
+flatpak update -y
+
+Every week check for CVE Vulnerabilities on the sites listed below.
+Most packages should be close to LFS stable and CVE can be checked on their LFS and BLFS CVE sites.
+Some packages (like busybox) are striclyt LNX specific and can be found below, these packages
+needs to be checked manually on cvedetails.com quite often to keep LNX secure.
+
+Hack home network with nmap some examples:
+nmap --script vuln 192.168.50.120
+nmap -sT 192.168.50.120
+# check entire home network for open ports:
+nmap -sT -O 192.168.50/24
+
+Update certificates once a week:
+cd /etc/ssl
+rm -f certdata.txt
+wget --no-check-certificate http://anduin.linuxfromscratch.org/sources/other/certdata.txt
+make-ca.sh
+                         
+                         
+Update the AIDE database:
+# FIRST TIME_
+aide --init             
+# Complete update (slow) 
+aide --update                                                        
+# Incremental update since last baseline (since last --init/--update)
+aide --check                                                                                                      
+                                                                                                                  
+
+Check CVE on these sites:
+=============================
+For LNX specific things not in LFS, check:
+https://www.cvedetails.com/vulnerability-list/vendor_id-72/product_id-38464/version_id-688013/GNU-Ncurses-6.3.html
+For som basic LFS packages:
+https://www.linuxfromscratch.org/lfs/advisories/12.2.html
+For most programs in LFS:
+https://www.linuxfromscratch.org/blfs/advisories/consolidated.html#sa-12.2-041
+
+Check these packages separately as they are NOT found in LFS:
+Busybox
+https://www.cvedetails.com/version-list/0/7452/1/
+
+Flatpak
+https://www.cvedetails.com/version-list/0/38446/1/
+
+pcre
+https://www.cvedetails.com/version-list/0/5715/1/
+
+gobject-introspection
+https://security.snyk.io/vuln/?search=gobject-introspection
+
+ostree
+https://www.cvedetails.com/version-list/0/155083/1/
+
+gcab
+https://www.cvedetails.com/version-list/0/31093/1/
+
+AppStream
+? LNX version is old,(2022) and there are newwer version but cannot find CVE
+
+libudev-zero
+? LNX uses this stub, no CVE as it's a small cutom package not widely used
+
+xlockmore
+https://www.cvedetails.com/version-list/0/61947/1/
+
+Jack2
+https://www.cvedetails.com/version-list/0/73443/1/
+
+------------------------------------------------------------------
+You can also check the CVE database offline:
+https://github.com/CVEProject/cvelistV5 
+...or  for a direct JSON download:
+https://www.cve.org/AllResources/CveServices#CveRecordFormat
+...or in zip:
+https://github.com/CVEProject/cvelistV5/archive/refs/heads/main.zip
+# To filter out  ie flatpak in a directory structure, do this:
+grep -B0 -A20 -R "\"product\": \"flatpak\"," *|grep "lessThan"|tail -n1|awk '{print $3}'|sed 's/"//g'|sed 's/,//g'
+# Gives ie the result: 1.15.10
+# chooses between lessThan OR lessThanOrEqual. Sorts the last CVE filename last which is important to get the last known CVE in the search algorithm.
+# tail -1, only display ONE and most accurate (sorted) line/version. Print it and cut some ugly chars with sed:
+#grep -B0 -A20 -R "\"product\": \"glibc\"," *|grep -E '"lessThan"|"lessThanOrEqual"'|sort|tail -n1|awk '{print "glibc-", $3}'|sed 's/"//g'|sed 's/,//g'|sed 's/\s\+$//'
+# Same but with %s%s for both packet holders in awk.
+grep -B0 -A20 -R "\"product\": \"glibc\"," *|grep -E '"lessThan"|"lessThanOrEqual"'|sort|tail -n1|awk '{printf "%s%s\n","glibc-",$3}'|sed 's/"//g'|sed 's/,//g'
+
+# You can check for affected also, not very useful but can bw intresting at times:
+grep -B0 -A20 -R "\"product\": \"glibc\"," *|grep -A1 -E "affected"|grep version
+
+#!/bin/sh
+# To check ALL packages in LNX for CVE's, search the database something like this:
+echo "" > packages_to_patch.txt                                                                                                                                                                                                
+for bibliotek in "/mnt/SOURCE_CODE"/*; do                                                                                                                                                                                      
+  if [[ -d "$bibliotek" ]]; then                                                                                                                                                                                               
+    BIBLIOTEKSNAMN=$(basename "$bibliotek")                                                                                                                                                                                    
+    echo "Hittade bibliotek: $BIBLIOTEKSNAMN"                                                                                                                                                                                  
+    grep -B0 -A20 -R "\"product\": \"$BIBLIOTEKSNAMN\"," *|grep -E '"lessThan"|"lessThanOrEqual"'|sort|tail -n1|awk "{printf \"%s-%s\\n\", \"$BIBLIOTEKSNAMN\", \$3}"|sed 's/"//g'|sed 's/,//g' >> packages_to_patch.txt           
+  fi                                                                                                                                                                                                                           
+done                
+
+
+
+------------------------------------------------------------------
+CHECK SECURITY ON THE LNX SYSTEM WITH LYNIS:
+https://cisofy.com/downloads/lynis/
+https://github.com/CISOfy/lynis/tree/master/plugins
+

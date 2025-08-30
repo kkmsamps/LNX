@@ -1,0 +1,410 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# THIS IS NEEDED! Without this, packages will not find /usr/lib64/pkgconfig!
+export PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/lib64/pkgconfig
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+#build_bison() {
+#  log_step "Bison"
+#  cd /SOURCE_CODE/bison
+#  make distclean || true
+#  ./configure --prefix=/usr
+#  make -j$LNX_CPU_CORES
+#  make DESTDIR="$LNX" install
+#}
+
+#build_flex() {
+#  log_step "Flex"
+#  cd /SOURCE_CODE/flex
+#  make distclean || true
+#  [ ! -f configure ] && ./autogen.sh
+#  ./configure --prefix=/usr
+#  make -j$LNX_CPU_CORES
+#  make install
+#}
+
+build_wireless_tools() {
+  log_step "Wireless Tools"
+  cd /SOURCE_CODE/wireless_tools
+  make
+  make PREFIX=/usr INSTALL_MAN=/usr/share/man install
+}
+
+build_libnl() {
+  log_step "libnl (for WiFi)"
+  cd /SOURCE_CODE/libnl
+  sed -i '1s|#!/bin/bash|#!/bin/ash|' autogen.sh
+  ./autogen.sh || true
+  ./configure --prefix=/usr \
+              --sysconfdir=/etc \
+              --disable-static
+  make
+  make install
+  # The original script had 'rm -f /bin/bash' here.
+  # This is dangerous and likely unintended. Commenting out for safety.
+  # rm -f /bin/bash
+}
+
+build_wpa_supplicant() {
+  log_step "wpa_supplicant (for WiFi)"
+  cd /SOURCE_CODE/wpa_supplicant
+
+  # Create the .config file for wpa_supplicant
+  cat > wpa_supplicant/.config << "AVSLUT"
+CONFIG_BACKEND=file
+CONFIG_CTRL_IFACE=y
+CONFIG_DEBUG_FILE=y
+CONFIG_DEBUG_SYSLOG=y
+CONFIG_DEBUG_SYSLOG_FACILITY=LOG_DAEMON
+CONFIG_DRIVER_NL80211=y
+CONFIG_DRIVER_WEXT=y
+CONFIG_DRIVER_WIRED=y
+CONFIG_EAP_GTC=y
+CONFIG_EAP_LEAP=y
+CONFIG_EAP_MD5=y
+CONFIG_EAP_MSCHAPV2=y
+CONFIG_EAP_OTP=y
+CONFIG_EAP_PEAP=y
+CONFIG_EAP_TLS=y
+CONFIG_EAP_TTLS=y
+CONFIG_IEEE8021X_EAPOL=y
+CONFIG_IPV6=y
+CONFIG_LIBNL32=y
+CONFIG_PEERKEY=y
+CONFIG_PKCS12=y
+CONFIG_READLINE=y
+CONFIG_SMARTCARD=y
+CONFIG_WPS=y
+AVSLUT
+
+  cd wpa_supplicant/
+  make BINDIR=/usr/sbin LIBDIR=/usr/lib
+  install -v -m755 wpa_cli wpa_passphrase wpa_supplicant /usr/sbin/
+  install -v -m644 doc/docbook/wpa_supplicant.conf.5 /usr/share/man/man5/
+  install -v -m644 doc/docbook/wpa_cli.8 doc/docbook/wpa_passphrase.8 doc/docbook/wpa_supplicant.8 /usr/share/man/man8/
+  
+  # The following network configuration is very specific and might be better
+  # handled by a separate system configuration script.
+   mkdir -p /etc/sysconfig
+  echo "WiFi setup, just press <ENTER> if you don't want to add specifics to the configuration"
+  echo "Please enter the WiFi SSID/name: "
+  read WIFI_NAME
+  echo "Give the WiFi password: "
+  read WIFI_PASSWORD
+   wpa_passphrase "$WIFI_NAME" "$WIFI_PASSWORD" > /etc/sysconfig/wpa_supplicant-wlan0.conf
+   ifconfig wlan0 up
+   ifup wlan0
+}
+
+build_libcap() {
+  log_step "libcap"
+  cd /SOURCE_CODE/libcap
+  make distclean || true
+  # Rerunning make to avoid potential build script issues like "mkcapshdoc.sh: not found"
+  make prefix=/usr/lib
+  make prefix=/usr/lib
+  make test
+  make prefix=/usr/lib install
+}
+
+build_libtool() {
+  log_step "libtool"
+  cd /SOURCE_CODE/libtool
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_gettext() {
+  log_step "gettext"
+  cd /SOURCE_CODE/gettext
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_python() {
+  log_step "Python"
+  cd /SOURCE_CODE/Python
+  make distclean || true
+  ./configure --prefix=/usr --with-openssl=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libxml2() {
+  log_step "libxml2"
+  cd /SOURCE_CODE/libxml2
+  make distclean || true
+  # Workaround for Python 3.10+, as libxml2 might expect an older version
+  autoreconf -fiv
+  ./configure --prefix=/usr \
+              --sysconfdir=/etc \
+              --disable-static \
+              --with-history \
+              PYTHON=/usr/bin/python3
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_itstool() {
+  log_step "itstool"
+  cd /SOURCE_CODE/itstool
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libxslt() {
+  log_step "libxslt"
+  cd /SOURCE_CODE/libxslt
+  make distclean || true
+  # Workaround for Python 3.10+, as libxslt might expect an older version
+  autoreconf -fiv
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_meson_ninja() {
+  log_step "Meson and Ninja (via pip3)"
+  cd /SOURCE_CODE/meson
+  pip3 install --upgrade pip
+  pip3 install meson
+  pip3 install ninja
+}
+
+build_pcre2() {
+  log_step "pcre2"
+  cd /SOURCE_CODE/pcre2
+  rm -rf build
+  mkdir build
+  cd build
+  
+  # Temporarily set include path for this build
+  export GCC_VERSION=$(ls /build-tools/"$(uname -m)"-linux-musl/include/c++/)
+  export CPLUS_INCLUDE_PATH=/build-tools/"$(uname -m)"-linux-musl/include/c++/"$GCC_VERSION":/usr/include
+  
+  ../configure --prefix=/usr --enable-utf --enable-pcre2-16 --enable-pcre2-32 --enable-jit --enable-unicode-properties
+  make -j$LNX_CPU_CORES
+  make install
+  
+  # Unset the temporary variable
+  export CPLUS_INCLUDE_PATH=/usr/include
+}
+
+build_libpsl() {
+  log_step "libpsl"
+  cd /SOURCE_CODE/libpsl
+  [ ! -f configure ] && ./autogen.sh
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release
+  ninja
+  ninja install
+}
+
+build_libiconv() {
+  log_step "libiconv"
+  cd /SOURCE_CODE/libiconv
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_git() {
+  log_step "Git"
+  # Unsetting flags to ensure a clean build environment for Git
+  unset LDFLAGS CFLAGS CXXFLAGS CPPFLAGS
+  cd /SOURCE_CODE/git
+  make distclean || true
+  make configure
+  ./configure --prefix=/usr LIBS="-lssl -lcrypto -lz" \
+              --with-openssl=/usr \
+              --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+  # Configure git to use the system's certificate bundle
+  git config --system http.sslCAInfo /etc/ssl/certs/ca-bundle.crt
+}
+
+build_gperf() {
+  log_step "gperf"
+  cd /SOURCE_CODE/gperf
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libseccomp() {
+  log_step "libseccomp"
+  # Critical for flatpak, docker, podman etc.
+  cd /SOURCE_CODE/libseccomp
+  [ ! -f configure ] && ./autogen.sh
+  make distclean || true
+  ./configure --prefix=/usr --disable-static
+  # Workaround for build script shebang
+  sed -i.bak '1s#/bin/bash#/bin/ash#' src/arch-gperf-generate
+  make
+  make install
+}
+
+build_openssl() {
+  log_step "OpenSSL"
+  # comment
+  cd /SOURCE_CODE/openssl
+  mkdir -p /etc/ssl/certs
+  # Download a recent cert file
+  wget --no-check-certificate https://curl.se/ca/cacert.pem -O /etc/ssl/certs/ca-bundle.crt
+#  make distclean || true
+#  ./config --prefix=/usr \
+#           --openssldir=/etc/ssl \
+# 	   --libdir=lib \
+#	   shared \
+#	   zlib-dynamic
+#  make -j$LNX_CPU_CORES
+#  make install
+}
+
+build_curl() {
+  log_step "cURL"
+  cd /SOURCE_CODE/curl
+  make distclean || true
+  ./configure --prefix=/usr --with-openssl --enable-threaded-resolver --with-ca-path=/etc/ssl/certs
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libunistring() {
+  log_step "libunistring"
+  cd /SOURCE_CODE/libunistring
+  make distclean || true
+  ./configure --prefix=/usr --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the main build process..."
+
+## BISON AND FLEX... DOESN'T LOOK LIKE THEY COMPILED SUCCESSFULLY IN BUILD_SYSTEM1
+##build_bison
+##pause_for_review "Bison"
+
+##build_flex
+##pause_for_review "Flex"
+
+## --- WiFi Setup ---
+##build_wireless_tools
+##pause_for_review "Wireless Tools"
+
+build_libtool
+pause_for_review "libtool"
+
+build_libnl
+pause_for_review "libnl"
+
+build_wpa_supplicant
+pause_for_review "wpa_supplicant"
+
+# WONT BUILD 20250826....
+# --- Core System Libraries ---
+# build_libcap
+# pause_for_review "libcap"
+
+## MOVED...
+##build_libtool
+##pause_for_review "libtool"
+
+build_gettext
+pause_for_review "gettext"
+
+# --- Python (rebuild with OpenSSL support) ---
+build_python
+pause_for_review "Python"
+
+# --- XML Libraries ---
+build_libxml2
+pause_for_review "libxml2"
+
+build_itstool
+pause_for_review "itstool"
+
+build_libxslt
+pause_for_review "libxslt"
+
+# --- Modern Build System ---
+build_meson_ninja
+pause_for_review "Meson and Ninja"
+
+# --- Various Libraries (check comments for dependencies) ---
+build_pcre2
+pause_for_review "pcre2"
+
+# libunistring MUST be built before libpsl
+build_libunistring
+pause_for_review "libunistring"
+
+build_libpsl
+pause_for_review "libpsl"
+
+build_libiconv
+pause_for_review "libiconv"
+
+build_gperf
+pause_for_review "gperf"
+
+build_libseccomp
+pause_for_review "libseccomp"
+
+build_openssl
+pause_for_review "OpenSSL"
+
+# CURL MUST BE COMPILED BEFORE GIT
+build_curl
+pause_for_review "cURL"
+
+build_git
+pause_for_review "Git"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"

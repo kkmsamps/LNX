@@ -1,0 +1,485 @@
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now processing: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The step for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next step..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD AND CONFIGURATION FUNCTIONS
+# --------------------------------------------------------------------------
+
+build_dbus() {
+  log_step "D-Bus"
+  cd /SOURCE_CODE/dbus
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release --wrap-mode=nofallback -Dsystemd=disabled ..
+  ninja
+  ninja install
+}
+
+build_iptables() {
+  log_step "iptables"
+  cd /SOURCE_CODE/iptables
+  make distclean || true
+  # CFLAGS workaround for __UAPI_DEF_ETHHDR definition issues
+  export CFLAGS=" -D__UAPI_DEF_ETHHDR=0"
+  ./configure --prefix=/usr --disable-nftables --enable-libipq
+  make -j$LNX_CPU_CORES
+  make install
+  # Reset CFLAGS to a sane default
+  export CFLAGS="-B/usr/lib -I/usr/include"
+}
+
+build_alsa_stack() {
+  log_step "ALSA Libraries and Utilities"
+  
+  log_step "ALSA (alsa-lib)"
+  cd /SOURCE_CODE/alsa-lib
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+
+  log_step "ALSA (alsa-plugins)"
+  cd /SOURCE_CODE/alsa-plugins
+  ./configure --prefix=/usr --sysconfdir=/etc
+  make -j$LNX_CPU_CORES
+  make install
+
+  log_step "ALSA (alsa-utils)"
+  cd /SOURCE_CODE/alsa-utils
+  ./configure --disable-alsaconf \
+              --disable-bat \
+              --disable-xmlto
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+configure_init_scripts() {
+  log_step "Configuring Init Scripts (alsa, dbus)"
+  cd /SOURCE_CODE/blfs-bootscripts
+  #make install-alsa
+
+  cd /etc/rc.d/init.d
+  # Patching alsa init script
+  #sed -i '28 s/./#&/' alsa
+  #sed -i '32 s/./#&/' alsa
+  #sed -i '34 s/./#&/' alsa
+  #sed -i '38 s/./#&/' alsa
+  #sed -i '40 s/./#&/' alsa
+  #chmod 754 alsa
+
+  # Patching dbus init script
+  #sed -i '36 s/./#&/' dbus
+  #sed -i '40 s/./#&/' dbus
+  #sed -i '44 s/./#&/' dbus
+  #sed -i '46 s/./#&/' dbus
+  #sed -i '39 s/start_daemon//' dbus
+  #chmod 754 dbus
+}
+
+copy_user_configs() {
+  log_step "Copying predefined user configurations"
+  # This section copies user-specific config files.
+  # Ensure the source files (e.g., ~/START) exist on the build host.
+  chown -R user:user /home/user/ || true
+  cp ~/START /home/user/ || echo "INFO: ~/START not found, skipping."  || true
+  cp ~/WIFI /home/user/ || echo "INFO: ~/WIFI not found, skipping." || true
+  cp ~/LOCALE /home/user/ || echo "INFO: ~/LOCALE not found, skipping." || true
+  cp ~/SOUND /home/user/ || echo "INFO: ~/SOUND not found, skipping." || true
+  [ -f ~/xorg.conf ] && mv ~/xorg.conf /etc/X11/xorg.conf.d/ || true
+  [ -f ~/xinitrc ] && mv ~/xinitrc /etc/X11/app-defaults/ || true
+}
+
+fix_dbus_python() {
+  log_step "Fixing dbus-python installation"
+  # Temporarily set CC to ensure it links against libm
+  export CC="/build-tools/bin/$(uname -m)-linux-musl-gcc -lm"
+  pip3 install dbus-python
+  # Reset CC to the default toolchain compiler
+  export CC=/build-tools/bin/"$(uname -m)"-linux-musl-gcc
+}
+
+install_fonts() {
+  log_step "Installing DejaVu Fonts"
+  cd /SOURCE_CODE/dejavu-fonts-ttf
+  install -v -d -m755 /usr/share/fonts/dejavu
+  install -v -m644 ttf/*.ttf /usr/share/fonts/dejavu
+  fc-cache -v /usr/share/fonts/dejavu
+}
+
+setup_podman_prereqs() {
+  log_step "Setting up Podman Prerequisites"
+  
+  log_step "Podman Prereq (libslirp)"
+  cd /SOURCE_CODE/libslirp
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release ..
+  ninja
+  ninja install
+
+  log_step "Podman Prereq (slirp4netns)"
+#  cd /SOURCE_CODE/slirp4netns
+#  git checkout v1.3.3 || true
+#  ./autogen.sh || true
+#  ./configure --prefix=/usr
+#  make
+#  make install
+
+  log_step "Podman Prereq (libfuse)"
+  cd /SOURCE_CODE/libfuse
+  meson setup build --prefix=/usr
+  ninja -C build
+  ninja -C build install
+
+  log_step "Podman Prereq (fuse-overlayfs)"
+  cd /SOURCE_CODE/fuse-overlayfs
+  ./autogen.sh
+  ./configure --prefix=/usr
+  make
+  make install
+}
+
+build_auth_stack() {
+  log_step "Building Authentication Stack (PAM, Shadow)"
+
+  log_step "Auth Prereq (libmd)"
+  cd /SOURCE_CODE/libmd
+  ./configure --prefix=/usr
+  make
+  make install
+
+  log_step "Auth Prereq (libbsd)"
+  cd /SOURCE_CODE/libbsd
+  ./configure --prefix=/usr
+  make
+  make install
+
+  log_step "Auth Stack (Linux-PAM)"
+  cd /SOURCE_CODE/Linux-PAM
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup .. --prefix=/usr -D docs=disabled
+  ninja
+  ninja install
+#install -v -m755 -d /etc/pam.d
+# NEXT line is needed, /bin/login (from shadow package) won't otherwise find these libpam libraries
+# as musl systems look in /usr/lib and NOT in /usr/lib64 during first login, as profile and hence
+# LD_LIBRARY_PATH is not yet set:
+cp -f /usr/lib64/libpam.so.0 /usr/lib/
+cp -f /usr/lib64/libpam_misc.so.0 /usr/lib/
+cp -fdpr /usr/etc/l* /etc/
+  
+  log_step "Auth Stack (Shadow - PAM aware)"
+  cd /SOURCE_CODE/shadow
+  [ ! -f configure ] && ./autogen.sh
+  make distclean || true
+  ./configure --prefix=/usr --disable-logind
+  make
+  make install
+}
+
+
+
+configure_auth_system() {
+  log_step "Configuring Authentication System (PAM, Shadow, Users)"
+
+  # Generate a machine-id for D-Bus
+  dbus-uuidgen --ensure
+
+  # Setup subuid/subgid for rootless Podman
+  echo "user:100000:65536" > /etc/subuid
+  echo "user:100000:65536" > /etc/subgid
+  
+  # Setup cgroup v2 for rootless Podman delegation
+  echo "+cpu +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control
+  mkdir -p /sys/fs/cgroup/user/1000
+  chown -R user:user /sys/fs/cgroup/user/1000
+
+  # Create minimal, functional PAM configuration files
+  log_step "Configuring PAM services (/etc/pam.d)"
+  install -v -m755 -d /etc/pam.d
+
+
+
+cat > /etc/pam.d/other << "EOF100"
+auth     required       pam_deny.so
+account  required       pam_deny.so
+password required       pam_deny.so
+session  required       pam_deny.so
+EOF100
+
+cd  /SOURCE_CODE/Linux-PAM/build
+#ninja test 
+rm -fv /etc/pam.d/outher
+ninja install
+chmod -v 4755 /usr/sbin/unix_chkpwd
+rm -rf /usr/lib/systemd
+
+cat > /etc/pam.d/other << "EOF101"
+# Begin /etc/pam.d/other
+
+auth            required        pam_unix.so     nullok
+account         required        pam_unix.so
+session         required        pam_unix.so
+password        required        pam_unix.so     nullok
+
+# End /etc/pam.d/other
+EOF101
+
+#install -vdm755 /etc/pam.d
+
+cat > /etc/pam.d/system-account << "EOF102"
+# Begin /etc/pam.d/system-account
+
+account   required    pam_unix.so
+
+# End /etc/pam.d/system-account
+EOF102
+
+cat > /etc/pam.d/system-auth << "EOF103"
+# Begin /etc/pam.d/system-auth
+
+auth      required    pam_unix.so
+
+# End /etc/pam.d/system-auth
+EOF103
+
+cat > /etc/pam.d/system-session << "EOF104"
+# Begin /etc/pam.d/system-session
+
+session   required    pam_unix.so
+
+# End /etc/pam.d/system-session
+EOF104
+
+cat > /etc/pam.d/system-password << "EOF105"
+# Begin /etc/pam.d/system-password
+
+# use yescrypt hash for encryption, use shadow, and try to use any
+# previously defined authentication token (chosen password) set by any
+# prior module.
+password  required    pam_unix.so       yescrypt shadow try_first_pass
+
+# End /etc/pam.d/system-password
+EOF105
+
+cat > /etc/pam.d/other << "EOF106"
+# Begin /etc/pam.d/other
+
+auth        required        pam_warn.so
+auth        required        pam_deny.so
+account     required        pam_warn.so
+account     required        pam_deny.so
+password    required        pam_warn.so
+password    required        pam_deny.so
+session     required        pam_warn.so
+session     required        pam_deny.so
+
+# End /etc/pam.d/other
+EOF106
+
+cat > /etc/pam.d/login << "EOF107"
+#%PAM-1.0
+auth            required        pam_unix.so
+account         required        pam_unix.so
+password        required        pam_unix.so
+session         required        pam_limits.so
+EOF107
+
+cat > /etc/pam.d/passwd << "EOF108"
+#%PAM-1.0
+auth            required        pam_unix.so
+account         required        pam_unix.so
+password        required        pam_unix.so
+EOF108
+
+cat > /etc/pam.d/su << "EOF109"
+#%PAM-1.0
+auth            required        pam_unix.so
+account         required        pam_unix.so
+password        required        pam_unix.so
+session         required        pam_unix.so
+EOF109
+
+cat > /etc/pam.d/login << "EOF110"
+#%PAM-1.0
+auth            required        pam_unix.so
+account         required        pam_unix.so
+password        required        pam_unix.so
+session         required        pam_limits.so
+EOF110
+
+# Make shadow pam-aware:
+cd /SOURCE_CODE/shadow
+./autogen.sh || true
+make distclean
+echo " CONFIGURE SHADOW!!!!!!!!!!!!!!!!!!! "
+./configure --prefix=/usr --disable-logind
+echo " BUILD SHADOW !!!!!!!!!!!!!!!!!!!!!!!!!!!"
+make
+make install
+
+  cp /etc/pam.d/login /etc/pam.d/su
+  cp /etc/pam.d/login /etc/pam.d/xlock
+
+  # Create /etc/shells file
+  cat > /etc/shells << "EOF"
+/bin/sh
+/bin/ash
+EOF
+
+  # Ensure login.defs uses strong encryption
+  touch /etc/login.defs
+  sed -i 's/^#* *ENCRYPT_METHOD.*/ENCRYPT_METHOD SHA512/' /etc/login.defs
+
+  # Convert passwd/group to shadow format
+  pwconv
+  grpconv
+
+  # Set new (SHA512 encrypted) passwords
+  echo "Setting password for root..."
+  passwd root
+  echo "Setting password for user..."
+  passwd user
+
+  # Check user status
+  chage -l user
+}
+
+build_xlockmore_pam() {
+  log_step "xlockmore (PAM aware)"
+  cd /SOURCE_CODE/xlockmore
+  make clean
+  ./configure --prefix=/usr --enable-pam --without-gtk --without-gtk2 --without-mesa --without-opengl
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+setup_linker_path() {
+  log_step "Setting up system-wide linker path for musl"
+  ARCH=$(uname -m)
+# LET'S add the global PATHS for all LD_LIBRARY_PATH paths; this will help xlock and similar stuff to work!
+ARCH=$(uname -m)
+cat > /etc/ld-musl-${ARCH}.path << EOF102
+/build-tools/${ARCH}-linux-musl/lib64
+/build-tools/lib
+/build-tools/lib64
+/build-tools/${ARCH}-unknown-linux-gnu/x86_64-linux-musl/lib
+/build-tools/${ARCH}-linux-musl/lib
+/build-tools/${ARCH}-linux-musl/lib64
+/lib
+/lib64
+/usr/lib
+/usr/lib64
+/usr/lib/xorg/modules/input
+/usr/lib64/xorg/modules
+/usr/lib64/xorg/modules/drivers
+/usr/lib64/xorg/modules/input
+/usr/lib64/xorg/modules/extensions
+/usr/lib/alsa-lib
+/usr/lib/python3.10
+/usr/lib/alsa-topology
+/usr/lib/dbus-1.0
+/usr/lib/bash
+/usr/lib/cmake
+/usr/lib/engines-3
+/usr/lib/jack
+/usr/lib64/security
+EOF102
+
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting final system configuration and build process..."
+
+# Load the environment variables that were created in a previous script
+if [ -f /etc/profile.d/xorg.sh ]; then
+  # shellcheck source=/dev/null
+  . /etc/profile.d/xorg.sh
+  log_step "Sourced X.org environment variables."
+else
+  echo "WARNING: /etc/profile.d/xorg.sh not found. Build may fail."
+fi
+
+# Temporarily set C++ include path for certain builds
+export CPLUS_INCLUDE_PATH=/build-tools/"$(uname -m)"-linux-musl/include/c++/14.1.0
+
+#build_dbus
+pause_for_review "D-Bus"
+
+# --- System Setup ---
+# Install NLS for every language...
+#setxkbmap -model pc105 -layout se
+#pause_for_review "Locale and Keymap Setup"
+
+#build_iptables
+pause_for_review "iptables"
+
+#build_alsa_stack
+pause_for_review "ALSA Stack"
+
+#configure_init_scripts
+pause_for_review "Init Scripts"
+
+#copy_user_configs
+pause_for_review "User Configs"
+
+#fix_dbus_python
+pause_for_review "dbus-python fix"
+
+#install_fonts
+pause_for_review "Fonts"
+
+# --- Podman and Auth Stack ---
+#setup_podman_prereqs
+pause_for_review "Podman Prerequisites"
+
+#build_auth_stack
+pause_for_review "Authentication Stack (PAM, Shadow)"
+
+configure_auth_system
+pause_for_review "Authentication System Config"
+
+#build_xlockmore_pam
+pause_for_review "xlockmore (PAM)"
+
+#setup_linker_path
+pause_for_review "System Linker Path"
+
+# Clean up environment at the end
+unset CPLUS_INCLUDE_PATH
+
+log_step "🎉 ALL BUILDS AND CONFIGURATIONS IN THIS SCRIPT ARE COMPLETE! 🎉"
+

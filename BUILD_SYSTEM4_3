@@ -1,0 +1,224 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package/group)
+# --------------------------------------------------------------------------
+
+build_x_packages_in_passes() {
+  # This function encapsulates the multi-pass build logic for X libraries, apps, or fonts.
+  # Argument $1: The directory to work in (e.g., XApps, XFonts)
+  # Argument $2: A friendly name for logging (e.g., "XApps")
+  
+  local build_dir="/SOURCE_CODE/$1"
+  local build_name="$2"
+
+  log_step "$build_name (in multiple passes)"
+  cd "$build_dir"
+
+  # This multi-pass approach is a classic way to resolve complex, circular
+  # dependencies between packages without a perfectly linear build order.
+  
+  for pass in 1 2 3 4; do
+    log_step "Building $build_name: Pass $pass of 4..."
+    # Use find for a more robust way to get subdirectories
+    find . -maxdepth 1 -mindepth 1 -type d | while read -r package_path; do
+      local package=$(basename "$package_path")
+      echo "--> Attempting to build $package in pass $pass..."
+      ( # Run in a subshell to prevent cd from affecting the main script
+        cd "$package"
+        # Attempt to build with both autotools and meson, ignoring errors
+        # as some packages will fail with one method but succeed with another.
+        {
+          make distclean || true
+          ./configure $XORG_CONFIG && make -j$LNX_CPU_CORES && make install
+        } || {
+          rm -rf build
+          mkdir build
+          cd build
+	  #../configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --disable-static && make -j$LNX_CPU_CORES && make install
+          meson setup --prefix=/usr --buildtype=release .. && ninja && ninja install
+        } || echo "--> INFO: Skipping $package in this pass, will retry..."
+      )
+    done
+    echo "===> Pass $pass complete."
+  done
+}
+
+build_luit() {
+  log_step "luit"
+  cd /SOURCE_CODE/luit
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_xcursor_themes() {
+  log_step "xcursor-themes"
+  cd /SOURCE_CODE/xcursor-themes
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+setup_font_symlinks() {
+    log_step "Setting up X11 font symlinks"
+    install -v -d -m755 /usr/share/fonts
+    ln -svfn $XORG_PREFIX/share/fonts/X11/OTF /usr/share/fonts/X11-OTF
+    ln -svfn $XORG_PREFIX/share/fonts/X11/TTF /usr/share/fonts/X11-TTF
+}
+
+build_xkeyboard_config() {
+  log_step "xkeyboard-config"
+  cd /SOURCE_CODE/xkeyboard-config
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=$XORG_PREFIX --buildtype=release ..
+  ninja
+  ninja install
+}
+
+build_pixman() {
+  log_step "pixman"
+  cd /SOURCE_CODE/pixman
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release ..
+  ninja
+  ninja install
+}
+
+build_libepoxy() {
+  log_step "libepoxy"
+  cd /SOURCE_CODE/libepoxy
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr -Dtests=false -Ddocs=false --buildtype=release ..
+  ninja
+  ninja install
+}
+
+build_libxcvt() {
+  log_step "libxcvt (rebuild check)"
+  cd /SOURCE_CODE/libxcvt
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=$XORG_PREFIX --buildtype=release ..
+  ninja
+  ninja install
+}
+
+build_xorg_server() {
+  log_step "X.org Server"
+  cd /SOURCE_CODE/xorg-server
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup .. \
+        --prefix=$XORG_PREFIX \
+        --localstatedir=/var \
+        -Dglamor=true \
+        -Dsecure-rpc=false \
+        -Dxkb_output_dir=/var/lib/xkb \
+        -Dudev=false \
+        -Dudev_kms=false \
+        -Dhal=false
+  ninja
+  ninja install
+  
+  log_step "X.org Server (post-install setup)"
+  mkdir -pv /etc/X11/xorg.conf.d
+  install -v -d -m1777 /tmp/.{ICE,X11}-unix
+  
+  # Create a file to ensure necessary temp directories are created on boot
+  cat > /etc/sysconfig/createfiles << "ENDOFFILE"
+/tmp/.ICE-unix dir 1777 root root
+/tmp/.X11-unix dir 1777 root root
+ENDOFFILE
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the final X.org components build process..."
+
+# Load the environment variables that were created in a previous script
+if [ -f /etc/profile.d/xorg.sh ]; then
+  # shellcheck source=/dev/null
+  . /etc/profile.d/xorg.sh
+  log_step "Sourced X.org environment variables."
+else
+  echo "WARNING: /etc/profile.d/xorg.sh not found. Build may fail."
+  # Define a fallback for XORG_CONFIG to prevent the script from failing immediately
+  export XORG_CONFIG="--prefix=/usr --sysconfdir=/etc --localstatedir=/var --disable-static"
+fi
+
+# --- X.org Applications and Fonts (Complex Builds) ---
+build_x_packages_in_passes "XApps" "XApps"
+pause_for_review "XApps"
+
+build_luit
+pause_for_review "luit"
+
+build_xcursor_themes
+pause_for_review "xcursor-themes"
+
+build_x_packages_in_passes "XFonts" "XFonts"
+pause_for_review "XFonts"
+
+setup_font_symlinks
+pause_for_review "Font Symlinks"
+
+# --- Core Graphics Libraries and Server ---
+build_xkeyboard_config
+pause_for_review "xkeyboard-config"
+
+build_pixman
+pause_for_review "pixman"
+
+build_libepoxy
+pause_for_review "libepoxy"
+
+## ALREADY BUILD in 4_2
+#build_libxcvt
+#pause_for_review "libxcvt"
+
+build_xorg_server
+pause_for_review "X.org Server"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"

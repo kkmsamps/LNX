@@ -1,0 +1,30 @@
+#!/bin/bash
+
+#
+# Run as root
+#
+
+mount /dev/nvme0n1p4 /mnt                            
+cd /mnt/SOURCE_CODE/PATCHES                          
+
+echo -e "\n\n * * * LNX PATCH SYSTEM * * *"
+echo -e "Available patches; "
+ls -tr
+
+if [ "$#" -eq 0 ]; then
+	echo -e "\nUSAGE: ./PATCH_SYSTEM <patchname>.tar"
+	echo -e "EXAMPLE: ./PATCH_SYSTEM ncurses"
+	exit;
+else
+	echo -e "Amount of patches to apply: $#"
+fi
+
+patch_to_apply=$1
+
+echo -e "\n...will apply patch: $patch_to_apply"
+tar xvf $patch_to_apply.tar -C /
+ldconfig
+
+cd /
+umount /mnt
+
