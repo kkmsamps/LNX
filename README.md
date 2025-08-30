@@ -1,6 +1,7 @@
 # LNX
 LNX - A Minimalist Linux Project
 Philosophy
+
 LNX is a minimalist, source-based Linux distribution built upon the musl C library. The project aims to create a small-footprint, secure, and portable host operating system.
 
 The primary model for running applications is through rootless Podman containers, which minimizes the software installed and running on the host system itself. This provides a clean separation between the base system and user applications.
