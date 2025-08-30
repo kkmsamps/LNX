@@ -1,0 +1,278 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# THIS IS NEEDED! Without this, packages will not find /usr/lib64/pkgconfig!
+export PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/lib64/pkgconfig
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+build_elfutils() {
+  log_step "Elfutils"
+  # ELFUTILS MUST EXIST! It is NOT possible to compile the Linux kernel without it.
+  cd /SOURCE_CODE/elfutils
+  ./configure --prefix=/usr --disable-debuginfod --disable-libdebuginfod
+  make -j$LNX_CPU_CORES
+  make check -j$LNX_CPU_CORES
+  make install
+  install -vm644 config/libelf.pc /usr/lib/pkgconfig
+}
+
+build_pkg_config() {
+  log_step "pkg-config"
+  cd /SOURCE_CODE/pkg-config
+  make distclean || true
+  ./configure --prefix=/usr --with-internal-glib
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_make() {
+  log_step "Make"
+  cd /SOURCE_CODE/make
+  make distclean || true
+  ./configure --prefix=/usr \
+              --without-guile \
+              --build=$(build-aux/config.guess)
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_zlib() {
+  log_step "zlib"
+  cd /SOURCE_CODE/zlib
+  make distclean || true
+  sed -i 's/-O3/-Os/g' configure
+  ./configure --prefix=/usr --shared
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_m4() {
+  log_step "M4"
+  cd /SOURCE_CODE/m4
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_readline() {
+  log_step "Readline"
+  cd /SOURCE_CODE/readline
+  ./configure --prefix=/usr \
+              --disable-static \
+              --with-curses
+  # The SHLIB_LIBS is needed to link against the wide-character ncurses library
+  make SHLIB_LIBS="-lncursesw"
+  make SHLIB_LIBS="-lncursesw" install
+}
+
+build_bash() {
+  log_step "Bash"
+  cd /SOURCE_CODE/bash
+  make distclean || true
+  ./configure --prefix=/usr --enable-readline
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_perl() {
+  log_step "Perl"
+  # This build can fail without GLIBC and with a freshly recompiled GCC
+  cd /SOURCE_CODE/perl
+  make distclean || true
+  sh Configure -des \
+               -Dprefix=/usr -Dldflags="-B/usr/lib -L/usr/lib" \
+               -Dccflags="-I/usr/include -D_GNU_SOURCE -O2" \
+               -Dcc="$(uname -m)-linux-musl-gcc -B/usr/lib" \
+               -Dvendorprefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_autoconf() {
+  log_step "Autoconf"
+  cd /SOURCE_CODE/autoconf
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_automake() {
+  log_step "Automake"
+  cd /SOURCE_CODE/automake
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_openssl() {
+  log_step "OpenSSL"
+  # libcrypto and libssl are needed for Python pip3 commands
+  cd /SOURCE_CODE/openssl
+  mkdir -p /etc/ssl/certs
+  # Download the latest CA certificates bundle
+  #wget --no-check-certificate https://curl.se/ca/cacert.pem -O /etc/ssl/certs/ca-bundle.crt
+  make distclean || true
+  ./config --prefix=/usr \
+           --openssldir=/etc/ssl \
+           --libdir=lib \
+           shared \
+           zlib-dynamic
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libffi() {
+  log_step "LibFFI"
+  cd /SOURCE_CODE/libffi
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libtasn1() {
+  log_step "libtasn1"
+  cd /SOURCE_CODE/libtasn1
+  make distclean || true
+  ./configure --prefix=/usr --disable-doc
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libidn2() {
+  log_step "libidn2"
+  cd /SOURCE_CODE/libidn2
+  ./configure --prefix=/usr --disable-static --disable-doc
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_nettle() {
+  log_step "Nettle"
+  # GMP is needed to build libhogweed in Nettle
+  cd /SOURCE_CODE/nettle
+  make distclean || true
+  ./configure --prefix=/usr --disable-static --enable-shared --enable-arm64-crypto
+  make -j$LNX_CPU_CORES
+  make install
+  chmod -v 755 /usr/lib64/libhogweed.so
+  chmod -v 755 /usr/lib64/libnettle.so
+}
+
+build_expat() {
+  log_step "Expat"
+  cd /SOURCE_CODE/expat
+  make distclean || true
+  ./configure --prefix=/usr \
+              --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_zstd() {
+  log_step "zstd"
+  # Check that the compilation succeeds. Check that /usr/lib/libzstd.so is installed!
+  cd /SOURCE_CODE/zstd
+  make prefix=/usr -j$LNX_CPU_CORES
+  make check -j$LNX_CPU_CORES
+  make prefix=/usr install
+  # rm -v /usr/lib/libzstd.a # Uncomment to remove the static library
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the main build process..."
+
+##build_elfutils
+##pause_for_review "Elfutils"
+
+build_pkg_config
+pause_for_review "pkg-config"
+
+## --- REMOVED FOR MUSL, 20250701 ---
+## build_make
+## pause_for_review "Make"
+
+build_zlib
+pause_for_review "zlib"
+
+build_m4
+pause_for_review "M4"
+
+build_readline
+pause_for_review "Readline"
+
+## --- REMOVED FOR MUSL, 20250701 ---
+## build_bash
+## pause_for_review "Bash"
+
+build_perl
+pause_for_review "Perl"
+
+## --- REMOVED FOR MUSL, 20250701 ---
+## build_autoconf
+## pause_for_review "Autoconf"
+
+## --- REMOVED FOR MUSL, 20250701 ---
+## build_automake
+## pause_for_review "Automake"
+
+build_openssl
+pause_for_review "OpenSSL"
+
+## pkg-config is built earlier, no need to build again.
+## libffi is built earlier, no need to build again.
+
+build_libtasn1
+pause_for_review "libtasn1"
+
+build_libidn2
+pause_for_review "libidn2"
+
+build_nettle
+pause_for_review "Nettle"
+
+build_expat
+pause_for_review "Expat"
+
+build_zstd
+pause_for_review "zstd"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"
+

@@ -1,0 +1,24 @@
+#!/bin/ash
+
+#localdef -i sv_SE -f UTF-8 UTF-8
+#setxkbmap -model pc105 -layout se -variant nodeadkeys
+
+podman run --rm -it --network=host --name=temp-installer docker.io/library/fedora:latest /bin/bash
+dnf install alsa-util* chromium -y
+dnf install gedit -y
+dnf install ardour8 -y
+dnf install audacity -y 
+dnf install gimp -y
+dnf install xterm -y
+dnf install thunderbird -y
+dnf install dolphin -y
+dnf install -y https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-42.noarch.rpm https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-42.noarch.rpm
+dnf install -y lv2-guitarix-plugins -y
+dnf install libreoffice -y
+dnf install firefox -y
+
+# In a new windo *BEFORE THE FIST HAS EXITED*
+# podman ps ( hitta id)
+# podman commit <container-id> chromium-image:latest
+# close the first podman session with> exit
+

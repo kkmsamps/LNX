@@ -1,0 +1,165 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+build_libarchive() {
+  log_step "libarchive"
+  cd /SOURCE_CODE/libarchive
+  make distclean || true
+  # FROM LFS: Adapt the package to changes in glibc-2.36 ->
+  # This may or may not be necessary for musl, but is kept for reference.
+  sed '/linux\/fs\.h/d' -i libarchive/archive_read_disk_posix.c
+  ./configure --prefix=/usr --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_sqlite() {
+  log_step "SQLite (Autoconf)"
+  cd /SOURCE_CODE/sqlite-autoconf
+  make distclean || true
+  ./configure --prefix=/usr --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_nghttp2() {
+  log_step "nghttp2"
+  cd /SOURCE_CODE/nghttp2
+  make distclean || true
+  ./configure --prefix=/usr --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_glib_networking() {
+  log_step "glib-networking"
+  cd /SOURCE_CODE/glib-networking
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release -Dlibproxy=disabled -Dgnome_proxy=disabled -Dgnutls=disabled -Dopenssl=enabled ..
+  ninja
+  ninja install
+}
+
+build_vala() {
+  log_step "Vala"
+  cd /SOURCE_CODE/vala
+  make distclean || true
+  ./configure --prefix=/usr --disable-valadoc
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_gmp() {
+  log_step "GMP (GNU Multiple Precision)"
+  cd /SOURCE_CODE/gmp
+  make distclean || true
+  ./configure --prefix=/usr --disable-static
+  make -j$LNX_CPU_CORES
+  make check
+  make install
+}
+
+build_libxcrypt() {
+  log_step "libxcrypt"
+  cd /SOURCE_CODE/libxcrypt
+  [ ! -f configure ] && ./autogen.sh
+  make distclean || true
+  ./configure --prefix=/usr \
+              --enable-hashes=strong,glibc \
+              --enable-obsolete-api=no \
+              --disable-static \
+              --disable-failure-tokens
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_expat() {
+  log_step "Expat"
+  cd /SOURCE_CODE/expat
+  make distclean || true
+  ./configure --prefix=/usr \
+              --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the core libraries build process..."
+
+# Load the environment variables that were created in a previous script
+if [ -f /etc/profile.d/xorg.sh ]; then
+  # shellcheck source=/dev/null
+  . /etc/profile.d/xorg.sh
+  log_step "Sourced X.org environment variables."
+else
+  echo "WARNING: /etc/profile.d/xorg.sh not found. Build may fail."
+fi
+
+build_libarchive
+pause_for_review "libarchive"
+
+build_sqlite
+pause_for_review "SQLite"
+
+## THIS DOES NOT COMPILE EVEN THE SLIGHTEST...
+#build_nghttp2
+#pause_for_review "nghttp2"
+
+build_glib_networking
+pause_for_review "glib-networking"
+
+## THIS DOES NOT SEEM TO BUILD AT ALL....
+#build_vala
+#pause_for_review "Vala"
+
+# --- Rebuild GMP as per user's script logic ---
+# THIS IS FROM MUCH EARLIER IN THE DOCUMENT, ALREADY COMPILED,
+# but there seems to be strange errors...
+#build_gmp
+#pause_for_review "GMP (rebuild)"
+
+build_libxcrypt
+pause_for_review "libxcrypt"
+
+build_expat
+pause_for_review "Expat (rebuild)"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"
+

@@ -1,0 +1,268 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+build_glib() {
+  log_step "GLib"
+  # User note: glib build can be problematic with musl libc
+  cd /SOURCE_CODE/glib
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr \
+              --buildtype=release \
+              -Dman=false \
+              ..
+  ninja
+  ninja install
+  # User note: The original script had pip3 install commands here.
+  # It's generally better to install system libraries from source and Python
+  # packages into a virtual environment if possible.
+  pip3 install pip-search
+}
+
+build_freetype() {
+  log_step "FreeType2"
+  cd /SOURCE_CODE/freetype
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release -Dpng=disabled ..
+  ninja -j$LNX_CPU_CORES
+  ninja install
+}
+
+build_gperf() {
+  log_step "gperf"
+  cd /SOURCE_CODE/gperf
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_fontconfig() {
+  log_step "Fontconfig"
+  cd /SOURCE_CODE/fontconfig
+  make distclean || true
+  ./configure --prefix=/usr \
+              --enable-libxml2 \
+              --sysconfdir=/etc \
+              --localstatedir=/var \
+              --disable-docs
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+setup_xorg_env() {
+  log_step "Setting up X.org build environment"
+  export XORG_PREFIX="/usr"
+  export XORG_CONFIG="--prefix=$XORG_PREFIX --sysconfdir=/etc --localstatedir=/var --disable-static"
+  
+  mkdir -p /etc/profile.d
+  cat > /etc/profile.d/xorg.sh << "END_INNER"
+XORG_PREFIX="/usr"
+XORG_CONFIG="--prefix=/usr --sysconfdir=/etc --localstatedir=/var --disable-static"
+export XORG_PREFIX XORG_CONFIG
+END_INNER
+  chmod 644 /etc/profile.d/xorg.sh
+
+  mkdir -p /etc/sudoers.d
+  cat > /etc/sudoers.d/xorg << "END_INNER2"
+Defaults env_keep += XORG_PREFIX
+Defaults env_keep += XORG_CONFIG
+END_INNER2
+
+  cat >> /etc/profile.d/xorg.sh << "END_INNER3"
+export PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/share/pkgconfig
+export C_INCLUDE_PATH=/usr/include
+export CPLUS_INCLUDE_PATH=/usr/include
+ACLOCAL="aclocal -I $XORG_PREFIX/share/aclocal"
+END_INNER3
+
+  # Load the environment variables into the current session
+  log_step "Sourcing new X.org environment variables"
+  # shellcheck source=/dev/null
+  . /etc/profile.d/xorg.sh
+}
+
+build_util_macros() {
+  log_step "util-macros (X.org)"
+  cd /SOURCE_CODE/util-macros
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make install
+env
+echo $XORG_CONFIG
+}
+
+build_xorgproto() {
+  log_step "xorgproto (X.org)"
+  cd /SOURCE_CODE/xorgproto
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+env
+#echo $XORG_CONFIG
+#echo $XORG_PREFIX
+}
+
+build_libxau() {
+  log_step "libXau (X.org)"
+  cd /SOURCE_CODE/libXau
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release ..
+  ninja
+  ninja install
+}
+
+build_xcb_proto() {
+  log_step "xcb-proto (X.org)"
+  cd /SOURCE_CODE/xcb-proto
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+#  cp /usr/local/share/pkgconfig/xcb-proto.pc /usr/lib/pkgconfig/
+}
+
+build_libxdmcp() {
+  log_step "libXdmcp (X.org)"
+  cd /SOURCE_CODE/libXdmcp
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_libxcb() {
+  log_step "libxcb (X.org)"
+  cd /SOURCE_CODE/libxcb
+  make distclean || true
+  ./configure $XORG_CONFIG
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_xlibs_in_passes() {
+  log_step "X Libraries (in multiple passes)"
+  cd /SOURCE_CODE/Xlib
+  
+  # The cpp link is needed for libX11 and some more X.org libs.
+  # MUST NOT BE USED ANYMORE FROM LNX2025.10_musl ->
+	#ln -sf /build-tools/bin/"$(uname -m)"-linux-musl-cpp /build-tools/bin/cpp
+  
+  # This multi-pass approach is a classic way to resolve complex, circular
+  # dependencies between the X libraries without a perfectly linear build order.
+  
+  for pass in 1 2 3 4; do
+    log_step "Building Xlibs: Pass $pass of 4..."
+    for package in *; do
+      # Skip non-directories (like tarballs)
+      [ ! -d "$package" ] && continue
+      
+      echo "--> Building $package in pass $pass..."
+      ( # Run in a subshell to prevent cd from affecting the main script
+        cd "$package"
+        # Attempt to build with both autotools and meson, ignoring errors
+        # as some packages will fail with one method but succeed with another.
+        # The errors are expected as dependencies are resolved over multiple passes.
+        {
+          make distclean || true
+          ./configure $XORG_CONFIG && make -j$LNX_CPU_CORES && make install
+        } || {
+          rm -rf build
+          mkdir build
+          cd build
+	  ../configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --disable-static && make -j$LNX_CPU_CORES && make install
+          meson setup --prefix=/usr --buildtype=release .. && ninja && ninja install
+        } || echo "--> Skipping $package in this pass, will retry..."
+      )
+    done
+    echo "===> Pass $pass complete."
+  done
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the main build process..."
+
+build_glib
+pause_for_review "GLib"
+
+build_freetype
+pause_for_review "FreeType2"
+
+## Byggd tidigare, eller hur...
+##build_gperf
+##pause_for_review "gperf"
+
+build_fontconfig
+pause_for_review "Fontconfig"
+
+# --- X.org Build Environment Setup ---
+setup_xorg_env
+pause_for_review "X.org Environment Setup"
+source /etc/profile.d/xorg.sh
+
+# --- X.org Core Components ---
+build_util_macros
+pause_for_review "util-macros"
+
+build_xorgproto
+pause_for_review "xorgproto"
+
+build_libxau
+pause_for_review "libXau"
+
+build_xcb_proto
+pause_for_review "xcb-proto"
+
+build_libxdmcp
+pause_for_review "libXdmcp"
+
+build_libxcb
+pause_for_review "libxcb"
+
+# --- X.org Libraries (Complex Build) ---
+build_xlibs_in_passes
+pause_for_review "X Libraries"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"
+

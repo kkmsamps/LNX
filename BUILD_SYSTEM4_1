@@ -1,0 +1,219 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+setup_static_compiler() {
+  log_step "Setting up static compiler environment"
+  cd /SOURCE_CODE/
+  # Unpack a static compiler to bootstrap the build
+  tar zxf "$(uname -m)"-linux-musl-native.tgz -C /
+}
+
+build_llvm_clang() {
+  log_step "LLVM/Clang (Stage 1)"
+  # THIS IS THE COMPLICATED LLVM/CLANG BUILD SYSTEM NEEDED BY MESA
+  cd /SOURCE_CODE/llvm-project/
+  
+  # The original script had logic for moving source directories.
+  # This should typically be done once before the first build.
+  # cd llvm
+  # [ -d ../clang ] && mv ../clang tools/
+  # [ -d ../compiler-rt ] && mv ../compiler-rt resources/
+  # cd ..
+
+  rm -rf build
+  mkdir -v build
+  cd build
+
+  # Use the static toolchain we just unpacked for this initial build
+  export PATH="/$(uname -m)-linux-musl-native/bin:$PATH"
+  
+  # Unset flags to ensure a clean environment for CMake
+  unset LDFLAGS CXX CPP CC CXXFLAGS CPPFLAGS CFLAGS
+
+  cmake -G Ninja ../llvm \
+    -DCMAKE_CXX_STANDARD=17 \
+    -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+    -DCMAKE_CXX_EXTENSIONS=ON \
+    -DLLVM_ENABLE_BINDINGS=OFF \
+    -DLLVM_INCLUDE_BENCHMARKS:BOOL=OFF \
+    -DLLVM_INCLUDE_TESTS:BOOL=OFF \
+    -DLLVM_INCLUDE_EXAMPLES:BOOL=OFF \
+    -DCMAKE_C_COMPILER="/$(uname -m)-linux-musl-native/bin/$(uname -m)-linux-musl-gcc" \
+    -DCMAKE_CXX_COMPILER="/$(uname -m)-linux-musl-native/bin/$(uname -m)-linux-musl-g++" \
+    -DCMAKE_REQUIRED_LIBRARIES=pthread \
+    -DLLVM_ENABLE_LIBCXX:BOOL=TRUE \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_PREFIX_PATH="/usr;/$(uname -m)-linux-musl-native" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLVM_ENABLE_PROJECTS='' \
+    -DLLVM_ENABLE_RUNTIMES='' \
+    -DLLVM_ENABLE_ZSTD:BOOL=OFF \
+    -DLLVM_TARGETS_TO_BUILD=Native
+  
+  ninja
+  ninja install
+  
+  # Clean up the PATH to avoid interfering with subsequent builds
+  export PATH=$(echo "$PATH" | sed -e "s|/$(uname -m)-linux-musl-native/bin:||")
+}
+
+build_spirv_headers() {
+  log_step "SPIRV-Headers"
+  cd /SOURCE_CODE/SPIRV-Headers
+  rm -rf build
+  mkdir build
+  cd build
+  cmake -DCMAKE_INSTALL_PREFIX=/usr -G Ninja ..
+  ninja
+  ninja install
+}
+
+build_spirv_tools() {
+  log_step "SPIRV-Tools"
+  cd /SOURCE_CODE/SPIRV-Tools
+  rm -rf build
+  mkdir build
+  cd build
+
+  # Set environment for this specific build
+  export CFLAGS="-isystem /$(uname -m)-linux-musl-native/include"
+  export CXXFLAGS="-isystem /$(uname -m)-linux-musl-native/include/c++/11.2.1 -isystem /$(uname -m)-linux-musl-native/include/c++/11.2.1/$(uname -m)-linux-musl"
+
+  cmake -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DSPIRV_WERROR=OFF \
+        -DBUILD_SHARED_LIBS=ON \
+        -DSPIRV_TOOLS_BUILD_STATIC=OFF \
+        -DSPIRV-Headers_SOURCE_DIR=/usr \
+        -G Ninja ..
+  ninja
+  ninja install
+}
+
+build_glslang() {
+  log_step "glslang"
+  cd /SOURCE_CODE/glslang
+  rm -rf build
+  mkdir build
+  cd build
+  cmake -DCMAKE_INSTALL_PREFIX=/usr \
+	-DCMAKE_CXX_STANDARD=17 \
+	-DCMAKE_CXX_STANDARD_REQUIRED=ON \
+	-DCMAKE_CXX_EXTENSIONS=ON \
+	-DCMAKE_C_COMPILER=/build-tools/bin/$(uname -m)-linux-musl-gcc \
+	-DCMAKE_CXX_COMPILER=/build-tools/bin/$(uname -m)-linux-musl-g++ \
+	-DCMAKE_PREFIX_PATH="/usr:/$(uname -m)-linux-musl-native" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DALLOW_EXTERNAL_SPIRV_TOOLS=ON \
+        -DBUILD_SHARED_LIBS=ON \
+        -DGLSLANG_TESTS=ON \
+        -G Ninja ..
+  ninja
+  ninja install
+}
+
+build_libclc() {
+  log_step "libclc"
+  # User note: This build might fail as it often requires clang
+  cd /SOURCE_CODE/libclc
+  rm -rf build
+  mkdir build
+  cd build
+  cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -G Ninja ..
+  ninja
+  ninja install
+}
+
+build_mesa() {
+  log_step "Mesa"
+  # Source the X.org environment variables if they exist
+  [ -f /etc/profile.d/xorg.sh ] && . /etc/profile.d/xorg.sh
+  
+  cd /SOURCE_CODE/mesa
+  # Workaround for a Mako check in a specific Mesa version
+  sed -i '935s/^/#/' meson.build
+  pip3 install PyYAML
+  
+  rm -rf build
+  mkdir build
+  cd build
+  
+# Build with gallium-driver=i915 for intel graphics. NOTE, will NOT compile with ARM hardware!
+meson setup \
+        --prefix=$XORG_PREFIX \
+        --buildtype=release \
+        -Dplatforms=x11 \
+        -Dglx=dri \
+        -Dgallium-drivers=virgl,swrast,iris \
+        -Dvalgrind=disabled \
+        -Dlibunwind=disabled \
+        -Dllvm=disabled \
+        -Dvulkan-drivers=intel \
+        ..
+  ninja
+  ninja install
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the Graphics Stack build process..."
+
+setup_static_compiler
+pause_for_review "Static Compiler Setup"
+
+build_llvm_clang
+pause_for_review "LLVM/Clang"
+
+build_spirv_headers
+pause_for_review "SPIRV-Headers"
+
+build_spirv_tools
+pause_for_review "SPIRV-Tools"
+
+build_glslang
+pause_for_review "glslang"
+
+## libclc not working with musl... at this time
+## build_libclc
+## pause_for_review "libclc"
+
+## MESA BUILDS AFTER LIBDRM IN NEXT SCRIPT!!!
+## build_mesa
+## pause_for_review "Mesa"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"
+

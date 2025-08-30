@@ -1,0 +1,47 @@
+#!/bin/ash
+
+#localdef -i sv_SE -f UTF-8 UTF-8
+setxkbmap -model pc105 -layout se -variant nodeadkeys
+
+#podman run --rm -it --network=host --name=temp-installer docker.io/library/fedora:latest /bin/bash
+# dnf install firefox -y
+# In a new windo *BEFORE THE FIST HAS EXITED*
+# podman ps ( hitta id)
+# podman commit <container-id> firefox-image:latest
+# close the first podman session with> exit
+
+# REMOVE IF NEEDED:
+podman stop chromium-container
+podman rm chromium-container 
+
+
+# RUN THE CONTAINER: 
+podman run -d --network=host --cap-add=sys_nice \
+--name chromium-container -e DISPLAY=$DISPLAY -v /dev/snd:/dev/snd \
+-v /dev/dri:/dev/dri -v /home/user/asound.conf:/etc/asound.conf:ro \
+-v /home/user/.Xauthority:/home/user/.Xauthority:Z \
+-e XAUTHORITY=/home/user/.Xauthority \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/:/root/Downloads \
+--security-opt label=disable \
+--shm-size="2gb" \
+chromium-image:rt sleep infinity 
+
+# USE THE CONTAINER:
+podman start chromium-container
+podman exec -it chromium-container /bin/bash
+
+# OCH SOM ROOT, FÖR ARDOUR som kräver rt:
+su -
+podman run -d --network=host --cap-add=sys_nice \
+--ulimit rtprio=95 --ulimit memlock=-1 \
+--name chromium-container-rt -e DISPLAY=$DISPLAY -v /dev/snd:/dev/snd \
+-v /dev/dri:/dev/dri -v /home/user/asound.conf:/etc/asound.conf:ro \
+-v /home/user/.Xauthority:/home/user/.Xauthority:Z \
+-e XAUTHORITY=/home/user/.Xauthority \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/:/root/Downloads \
+--security-opt label=disable \
+--shm-size="2gb" \
+chromium-image:rt sleep infinity
+

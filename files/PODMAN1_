@@ -1,0 +1,13 @@
+#!/bin/ash
+
+podman run -d --network=host --cap-add=sys_nice \
+--name chromium-container -e DISPLAY=$DISPLAY -v /dev/snd:/dev/snd \
+-v /dev/dri:/dev/dri -v /home/user/asound.conf:/etc/asound.conf:ro \
+-v /home/user/.Xauthority:/home/user/.Xauthority:Z \
+-e XAUTHORITY=/home/user/.Xauthority \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/:/root/Downloads \
+--security-opt label=disable \
+--shm-size="2gb" \
+chromium-image:latest sleep infinity
+

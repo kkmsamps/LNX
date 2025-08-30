@@ -1,0 +1,31 @@
+ modprobe soundcore
+mdev -s
+ modprobe snd-usb-audio
+mdev -s
+alsactl init
+alsactl -L store
+
+modprobe i915
+cat /sys/dev/char/13:67/device/name
+#ln -s /dev/input/event4 /dev/input/mice
+
+modprobe iwlwifi
+sleep 5
+ifconfig wlan0 up
+sleep 2
+wpa_supplicant -Dnl80211 -iwlan0 -c/etc/sysconfig/wpa_supplicant-wlan0.conf &
+sleep 3
+udhcpc -i wlan0 &
+sleep 3
+mdev -sv
+
+/etc/rc.d/rc.iptables 
+
+chmod o+rw /dev/dri/*
+chmod o+rw /dev/input/*
+chmod o+rw /dev/tty*
+chmod o+rw /dev/snd/*
+chmod o+rw /dev/usb/*
+chmod o+rw -R /dev/bus
+chmod o+rw -R /dev/shm*
+chmod o+rw -R /dev/rt*

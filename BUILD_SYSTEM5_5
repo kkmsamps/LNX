@@ -1,0 +1,339 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now processing: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The step for '$1' completed."
+  echo "=> Review the log above. Press [Enter] to continue to the next step..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD AND CONFIGURATION FUNCTIONS
+# --------------------------------------------------------------------------
+
+build_st_terminal() {
+  log_step "st (Simple Terminal)"
+  cd /SOURCE_CODE/st
+  cp config.def.h config.h
+  # Apply scrollback patch
+  patch -p0 < ../st.patch
+  # Increase default font size
+  sed -i.bak 's/pixelsize=12/pixelsize=20/' config.h
+  sed -i 's|^PREFIX = /usr/local|PREFIX = /usr|' config.mk
+  make
+  make install
+}
+
+build_gpg_stack() {
+  log_step "GPG/Encryption Stack"
+
+  log_step "GPG (libgpg-error)"
+  cd /SOURCE_CODE/libgpg-error
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+
+  log_step "GPG (libassuan)"
+  cd /SOURCE_CODE/libassuan
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+
+  log_step "GPG (gpgme)"
+  cd /SOURCE_CODE/gpgme
+  make distclean || true
+  # CFLAGS workaround for ino64_t definitions
+  CFLAGS="-Dino64_t=ino_t -Doff64_t=off_t" ./configure --prefix=/usr --disable-gpg-test --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_mksh() {
+  log_step "mksh (MirBSD Korn Shell)"
+  cd /SOURCE_CODE/mksh-master
+  chmod 755 Build.sh
+  ./Build.sh
+  cp mksh /bin/
+  # Replace bash with a symlink to mksh
+  ln -fs /bin/mksh /bin/bash
+  rm -f /usr/bin/bash
+}
+
+setup_go_environment() {
+  log_step "Setting up Go Environment"
+  cd /SOURCE_CODE/
+  
+  # LNX checks for target architecture and unpacks the correct Go binary distribution
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    aarch64)
+      tar zxvf go1.24.5.linux-arm64.tar.gz -C /tmp
+      ;;
+    x86_64)
+      tar zxvf go1.24.5.linux-amd64.tar.gz -C /tmp
+      ;;
+    *)
+      echo "ERROR: Unsupported architecture for Go binary: $ARCH" >&2
+      exit 1
+      ;;
+  esac
+  
+  # Add the downloaded Go toolchain to the PATH for this script's session
+  export PATH=/tmp/go/bin:$PATH
+}
+
+build_conmon() {
+  log_step "conmon"
+  cd /SOURCE_CODE/conmon
+  make clean
+  # NOTE: Version 2.1.9 is known to cause OCI errors.
+  git checkout v2.1.13
+  rm -rf build
+  mkdir build
+  cd build
+  meson setup --prefix=/usr --buildtype=release ..
+  ninja
+  ninja install
+}
+
+build_runc() {
+  log_step "runc"
+  cd /SOURCE_CODE/runc
+  make clean
+  git checkout v1.0.0
+  make SHELL=/bin/sh BUILDTAGS="seccomp"
+  # go build -tags "seccomp" -o runc . # Alternative build command
+  cp runc /usr/bin/runc
+}
+
+configure_container_defaults() {
+  log_step "Configuring Container Defaults (/etc/containers)"
+  mkdir -p /etc/containers
+  wget --no-check-certificate -O /etc/containers/registries.conf https://raw.githubusercontent.com/containers/image/main/registries.conf
+  wget --no-check-certificate -O /etc/containers/policy.json https://raw.githubusercontent.com/containers/image/main/default-policy.json
+
+  cat > /etc/containers/containers.conf << "EOF"
+[engine]
+cgroup_manager = "cgroupfs"
+events_logger = "file"
+runtime = "crun"
+oom_score_adj = 0
+EOF
+
+  cat > /etc/containers/storage.conf << "EOF"
+[storage]
+driver = "overlay"
+runroot = "/run/containers/storage"
+graphroot = "/var/lib/containers/storage"
+
+[storage.options.overlay]
+mount_program = "/usr/bin/fuse-overlayfs"
+EOF
+
+  cat > /etc/containers/registries.conf << "EOF"
+unqualified-search-registries = ["docker.io","quay.io"]
+EOF
+}
+
+build_grep() {
+  log_step "grep"
+  cd /SOURCE_CODE/grep
+  make distclean || true
+  ./configure --prefix=/usr
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_cni_plugins() {
+  log_step "CNI Network Plugins (for Podman)"
+  cd /SOURCE_CODE/plugins
+  git checkout v1.7.1 || true
+  ./build_linux.sh
+  # Assuming the binaries are created in a 'bin' subdirectory
+  cp bin/* /usr/bin/
+}
+
+build_podman() {
+  log_step "Podman"
+  cd /SOURCE_CODE/podman
+  # Checkout a specific stable version
+  git checkout tags/v5.5.2 || true
+  make clean
+  # Workaround: Busybox's ln does not have -sfr support (the 'r' flag)
+  sed -i.bak 's/ln -sfr/ln -sf/g' Makefile
+  make BUILDTAGS="exclude_graphdriver_btrfs seccomp cni" LDFLAGS="-extldflags='-static -B/usr/lib -L/usr/lib'" MAN=/bin/true PREFIX=/usr
+  make install.bin PREFIX=/usr
+}
+
+build_yajl_manual() {
+  log_step "Yajl (Manual Build)"
+  # yajl's build system is broken, building manually instead!
+  cd /SOURCE_CODE/yajl
+#  sed -i 's/<yajl\/yajl_common.h>/<yajl_common.h>/g' src/api/yajl_parse.h 
+#  sed -i 's/<yajl\/yajl_common.h>/<yajl_common.h>/g' src/api/yajl_gen.h  
+#  sed -i 's/<yajl\/yajl_common.h>/<yajl_common.h>/g' src/api/yajl_tree.h
+#  sed -i 's/<yajl\/yajl_version.h>/<yajl_version.h>/g' src/yajl_version.c
+#  # Compile each .c file in src/ to an .o file
+#  $CC -fPIC -Isrc/api -c src/yajl.c 
+#  $CC -fPIC -c src/yajl_lex.c 
+#  $CC -fPIC -Isrc/api -c src/yajl_parser.c 
+#  $CC -fPIC -c src/yajl_buf.c 
+#  $CC -fPIC -Isrc/api -c src/yajl_encode.c 
+#  $CC -fPIC -Isrc/api -c src/yajl_gen.c 
+#  $CC -fPIC -c src/yajl_alloc.c 
+#  $CC -fPIC -Isrc/api -c src/yajl_tree.c 
+#  $CC -fPIC -Isrc/api -c src/yajl_version.c 
+#
+#  # Link the object files into a shared library
+#  $CC -shared -o libyajl.so.2.1.1 ./*.o -Wl,-soname,libyajl.so.2
+#
+#  # Install the library file
+#  install -m 755 libyajl.so.2.1.1 /usr/lib/
+#  # Create the necessary symbolic links
+#  ln -sf libyajl.so.2.1.1 /usr/lib/libyajl.so.2
+#  ln -sf libyajl.so.2 /usr/lib/libyajl.so
+#
+#  # Install the public header files
+#  install -d /usr/include/yajl
+#  install -m 644 src/api/*.h /usr/include/yajl/
+#
+#  # Create a pkg-config file for yajl
+#  cat > /usr/lib/pkgconfig/yajl.pc << "EOF"
+#prefix=/usr
+#exec_prefix=${prefix}
+#libdir=${exec_prefix}/lib
+#includedir=${prefix}/include
+#
+#Name: yajl
+#Description: Yet Another JSON Library
+#Version: 2.1.1
+#Libs: -L${libdir} -lyajl
+#Cflags: -I${includedir}
+#EOF
+#
+#  # Test the pkg-config file
+#  pkg-config --libs yajl
+./configure || true
+cd reformatter/
+patch < ../../yajl1.patch
+cd ../verify/
+patch < ../../yajl2.patch
+cd ..
+rm -rf build
+mkdir build
+cd build
+cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DYAJL_DO_INSTALL_DOC=off -Wno-dev .. 
+make
+make install
+}
+
+build_argp_standalone() {
+  log_step "argp-standalone"
+  cd /SOURCE_CODE/argp-standalone
+  # Use the static native compiler for this build
+  CC="/$(uname -m)-linux-musl-native/bin/$(uname -m)-linux-musl-gcc" cmake -DCMAKE_BUILD_TYPE=Release .
+  CC="/$(uname -m)-linux-musl-native/bin/$(uname -m)-linux-musl-gcc" make
+  cp include/argp-standalone/argp.h /usr/include/
+  cp src/libargp-standalone.a /usr/lib/libargp.a
+}
+
+build_libcap() {
+  log_step "libcap"
+  cd /SOURCE_CODE/libcap
+  make distclean
+  make prefix=/usr lib=lib
+  make prefix=/usr lib=lib install
+}
+
+build_crun() {
+  log_step "crun"
+  cd /SOURCE_CODE/crun
+  [ ! -f configure ] && ./autogen.sh
+	env
+  ./configure --prefix=/usr --disable-systemd
+  make
+  make install
+}
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the final build script..."
+
+# Load the environment variables that were created in a previous script
+if [ -f /etc/profile.d/xorg.sh ]; then
+  # shellcheck source=/dev/null
+  . /etc/profile.d/xorg.sh
+  log_step "Sourced X.org environment variables."
+else
+  echo "WARNING: /etc/profile.d/xorg.sh not found. Build may fail."
+fi
+
+#build_st_terminal
+pause_for_review "st (Simple Terminal)"
+
+#build_gpg_stack
+pause_for_review "GPG Stack"
+
+#build_mksh
+pause_for_review "mksh"
+
+#setup_go_environment
+pause_for_review "Go Environment Setup"
+
+#build_conmon
+pause_for_review "conmon"
+
+# NOT REALLY NEEDED ANYMORE
+#build_runc
+#pause_for_review "runc"
+
+#build_grep
+pause_for_review "grep"
+
+#configure_container_defaults
+pause_for_review "Container Defaults Configuration"
+
+#build_cni_plugins
+pause_for_review "CNI Network Plugins"
+
+#build_podman
+pause_for_review "Podman"
+
+#build_yajl_manual
+pause_for_review "Yajl"
+
+#build_argp_standalone
+pause_for_review "argp-standalone"
+
+build_libcap
+pause_for_review "libcap"
+
+build_crun
+pause_for_review "crun"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"

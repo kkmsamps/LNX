@@ -1,0 +1,138 @@
+#!/bin/ash
+
+# --------------------------------------------------------------------------
+# SCRIPT SETUP AND HELPER FUNCTIONS
+# --------------------------------------------------------------------------
+
+# This is the most important command in a build script.
+# 'set -e' tells the shell to exit immediately if any command fails.
+set -e
+
+# Set the number of CPU cores to use for compilation
+export LNX_CPU_CORES=$(nproc)
+
+# A simple function to print clean log headers
+log_step() {
+  echo
+  echo "========================================================================"
+  echo "=> Now building: $@"
+  echo "========================================================================"
+}
+
+# A function that announces success and waits for user input
+pause_for_review() {
+  echo
+  echo "===> ✅ SUCCESS: The build for '$1' completed."
+  echo "===> Review the log above. Press [Enter] to continue to the next package..."
+  read -r _
+}
+
+
+# --------------------------------------------------------------------------
+# BUILD FUNCTIONS (One function per package)
+# --------------------------------------------------------------------------
+
+build_xz() {
+  log_step "xz"
+  cd /SOURCE_CODE/xz
+  [ ! -f configure ] && ./autogen.sh
+  make distclean || true
+  ./configure --prefix=/usr \
+              --disable-static
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+build_e2fsprogs() {
+  log_step "e2fsprogs"
+  cd /SOURCE_CODE/e2fsprogs
+  rm -rf build
+  mkdir -v build
+  cd build
+  ../configure --prefix=/usr \
+               --sysconfdir=/etc \
+               --enable-libblkid \
+               --enable-libuuid \
+               --disable-uuidd \
+               --enable-blkid-debug \
+               --disable-debugfs \
+               --disable-resizer \
+               --disable-defrag \
+               --disable-tls \
+               --disable-mmp \
+               --disable-tdb \
+               --disable-fsck
+  make -j$LNX_CPU_CORES
+
+  # The following mkdir/touch commands are workarounds to satisfy the build
+  # process when header files are not found in their expected locations.
+  log_step "e2fsprogs (Applying build workarounds)"
+  mkdir -p /usr/include/et/
+  touch /usr/include/et/com_err.h
+  mkdir -p /usr/share/et/
+  touch /usr/share/et/et_c.awk
+  mkdir -p /usr/include/ss/
+  touch /usr/include/ss/ss.h
+  mkdir -p /usr/share/ss/
+  touch /usr/share/ss/ct_c.sed
+  mkdir -p /usr/include/e2p/
+  touch /usr/include/e2p/e2p.h
+  mkdir -p /usr/include/uuid/
+  touch /usr/include/uuid/uuid.h
+  mkdir -p /usr/include/blkid/
+  touch /usr/include/blkid/blkid.h
+  mkdir -p /usr/include/ext2fs/
+  touch /usr/include/ext2fs/hashmap.h
+  
+  make install
+}
+
+build_util_linux() {
+  log_step "util-linux"
+  cd /SOURCE_CODE/util-linux
+  make distclean || true
+  ./configure --prefix=/usr \
+              --bindir=/usr/bin \
+              --libdir=/usr/lib \
+              --sbindir=/usr/sbin \
+              --disable-chfn-chsh \
+              --disable-login \
+              --disable-nologin \
+              --disable-su \
+              --disable-setpriv \
+              --disable-runuser \
+              --disable-pylibmount \
+              --disable-static \
+              --without-systemdsystemunitdir
+  make -j$LNX_CPU_CORES
+  make install
+}
+
+
+# --------------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# --------------------------------------------------------------------------
+
+log_step "Starting the core system utilities build process..."
+
+# Load the environment variables that were created in a previous script
+if [ -f /etc/profile.d/xorg.sh ]; then
+  # shellcheck source=/dev/null
+  . /etc/profile.d/xorg.sh
+  log_step "Sourced X.org environment variables."
+else
+  echo "WARNING: /etc/profile.d/xorg.sh not found. Build may fail."
+fi
+
+build_xz
+pause_for_review "xz"
+
+build_e2fsprogs
+pause_for_review "e2fsprogs"
+
+## DOES NOT EVEN COMPILE...
+##build_util_linux
+##pause_for_review "util-linux"
+
+log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"
+
