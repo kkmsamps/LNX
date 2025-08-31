@@ -1,0 +1,15 @@
+--- CMakeLists.txt.orig
++++ CMakeLists.txt
+@@ -35,9 +35,9 @@
+ ENDIF (NOT WIN32)
+ 
+ # copy the binary into the output directory
+-GET_TARGET_PROPERTY(binPath json_reformat LOCATION)
++GET_TARGET_PROPERTY(binPath json_reformat yajl-2.1.1)
+ 
+-ADD_CUSTOM_COMMAND(TARGET json_reformat POST_BUILD
+-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${binPath} ${binDir})
++#ADD_CUSTOM_COMMAND(TARGET json_reformat POST_BUILD
++#    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${binPath} ${binDir})
+ 
+ INSTALL(TARGETS json_reformat RUNTIME DESTINATION bin)
