@@ -68,12 +68,8 @@ fi
 mkdir -pv $LNX
 
 
-
-
-
-# LC_ALL=POSIX or "C" will handle input in the /chroot environment
+# LC_ALL=POSIX or "C" will handle input in the environment
 export LC_ALL=POSIX
-#export PATH=$LNX/build-tools/bin:/bin:/usr/bin
 
 cd $LNX
 rm -rf a* b* c* d* e* i* l* m* n* o* p* run s* u* t* v* x*
@@ -188,7 +184,6 @@ BUILD_PATHS="${BUILD_PATHS}:/build-tools/${ARCH}-unknown-linux-gnu/${ARCH}-linux
 BUILD_PATHS="${BUILD_PATHS}:/build-tools/${ARCH}-linux-musl/lib"
 
 # common paths
-# (Notera: Jag har tagit bort några dubbletter från din originallista)
 SYS_PATHS="/lib:/lib64:/usr/lib:/usr/lib64"
 XORG_PATHS="/usr/lib/xorg/modules/input:/usr/lib64/xorg/modules:/usr/lib64/xorg/modules/drivers:/usr/lib64/xorg/modules/extensions"
 APP_PATHS="/usr/lib/alsa-lib:/usr/lib/python3.10:/usr/lib/alsa-topology:/usr/lib/dbus-1.0:/usr/lib/bash:/usr/lib/cmake:/usr/lib/engines-3:/usr/lib/jack:/usr/lib64/security"
@@ -204,16 +199,13 @@ export LDFLAGS="-B/usr/lib -L/usr/lib"
 export CPPFLAGS="-B/usr/lib -I/usr/include"
 export CFLAGS="-B/usr/lib -I/usr/include"
 
-
 # Needed for many flatpak apps, like Chrome...
 export $(dbus-launch)
 
 EOF
 
 
-
 echo "lnx_$LNX_VERSION" > $LNX/etc/HOSTNAME
-
 
 cat > $LNX/etc/issue<< EOF
 LNX Linux $LNX_VERSION
@@ -580,7 +572,7 @@ rm -rf binutils-build
 mkdir binutils-build
 cd binutils-build/
 # INCORRECT, does not generate static binaries for musl-libc, but it has to be this way to work at this stage:
-# Note also that this creates /cross-tools/...-unknown-linux-gnu when running make configure-host ...
+# Note also that this creates /build-tools/...-unknown-linux-gnu when running make configure-host ...
 # without 'make configure-host', the second gcc build will not work.
 ../configure --prefix=$LNX/build-tools --target=$LNX_TARGET --with-sysroot=$LNX \
 --disable-nls --disable-multilib \
@@ -619,11 +611,7 @@ AR=ar LDFLAGS="-Wl,-rpath,$LNX/build-tools/lib" \
 --disable-threads --enable-languages=c,c++ \
 --disable-multilib --with-arch=native
 make -j$LNX_CPU_CORES all-gcc all-target-libgcc
-#make all-target-libstdc++-v3
 make install-gcc install-target-libgcc
-#make install-target-libstdc++-v3
-# 20250627: IN MUSL??? ln -sv `uname -m`-lnx-linux-gnu/libgcc/libgcc.a `$LNX_TARGET-gcc -print-libgcc-file-name |sed 's/libgcc/&_eh/'`
-# ?????? ln -vs libgcc.a `$LNX_TARGET-gcc -print-libgcc-file-name |sed 's/libgcc/&_eh/'`
 
 # --- Step 4.4: Build and install musl ---
 # Now we use our minimal cross-compiler to build musl.
@@ -669,7 +657,7 @@ echo -e '#include <stdio.h>\n\nint main(void)\n{\n\tprintf("hello from musl!\\n"
 $LNX/build-tools/bin/$(uname -m)-linux-musl-gcc test.c -o test_musl
 # Verify that it works:
 readelf -l test_musl | grep 'program interpreter'
-# The result should be:
+# The result should be something like this depending on CPU arch:
 # [Requesting program interpreter: /lib/ld-musl-aarch64.so.1]
 
 
@@ -682,15 +670,8 @@ export CC="${LNX_TARGET}-gcc"
 export CXX="${LNX_TARGET}-g++"
 export CPPFLAGS="-I$LNX/usr/include"
 export LDFLAGS="-L$LNX/usr/lib"
-#export CC="clang --target=$LNX_TARGET --sysroot=$LNX"
-#export CXX="clang++ --target=$LNX_TARGET --sysroot=$LNX"
-#export AR="llvm-ar"
-#export NM="llvm-nm"
-#export LD="ld.lld"
-#export RANLIB="llvm-ranlib"
-#export STRIP="llvm-strip"
 
-# My own idea; these don't seem to be created on x86 ... but on aarch64 they usually are...but NOT always!
+# These don't seem to be created on x86 ... but on aarch64 they usually are...but NOT always!
 # LNX checks for the target architecture
 if [ $(uname -m) == "aarch64" ];
 then
@@ -752,7 +733,6 @@ make CROSS_COMPILE="$LNX_TARGET-" CONFIG_PREFIX=../initramfs_source install
 
 # Compile MAKE
 # Must build with build-tools now!
-#export PATH=$LNX/build-tools/bin:$PATH
 cd $LNX/SOURCE_CODE/make
 make distclean
 ./configure --prefix=/usr   \
@@ -771,11 +751,6 @@ BUILD_CC="$LNX_TARGET-gcc" CC="$LNX_TARGET-gcc" \
 ./configure --prefix=/usr --shared
 make -j$LNX_CPU_CORES
 make DESTDIR=$LNX install
-# Make sure packages look for zlib in /lib64 and not in /lib (32-bit)
-#???mv -v $LNX/usr/lib/libz.so.* $LNX/lib
-#???ln -svf ../../lib/libz.so.1 $LNX/usr/lib/libz.so
-#???ln -svf ../../lib/libz.so.1 $LNX/usr/lib/libz.so.1
-#???ln -svf ../lib/libz.so.1 $LNX/lib64/libz.so.1
 
 # Compile M4
 cd $LNX/SOURCE_CODE/m4
@@ -789,8 +764,6 @@ make DESTDIR=$LNX install
 # Compile NCURSES
 cd $LNX/SOURCE_CODE/ncurses
 make distclean
-# The next part doesn't work, they are not installed! Yes, it does! No, not on modern ncurses, not anymore... 2025
-
 # Configure for a musl-based cross-compilation
 ./configure --prefix=/usr \
             --host=$LNX_TARGET \
@@ -915,10 +888,6 @@ make clean
 export CXXFLAGS="-isystem /MAKE_LNX/build-tools/$(uname -m)-linux-musl/include/c++/14.1.0 -isystem /MAKE_LNX/build-tools/$(uname -m)-linux-musl/include/c++/14.1.0/$(uname -m)-linux-musl"
 cmake ../ -DCMAKE_TOOLCHAIN_FILE=../../toolchain_file -DTOOLCHAIN_PREFIX=$LNX_HOST -DCMAKE_INSTALL_PREFIX=$LNX/usr \
 -DCMAKE_USE_OPENSSL=OFF -DCMAKE_BUILD_TYPE=Release  -DCMAKE_CXX_FLAGS="-L${LNX_GCC_LIB_PATH} -L${LNX}/usr/lib"
-#OK cmake ../ -DCMAKE_INSTALL_PREFIX=$LNX -DCMAKE_USE_OPENSSL=OFF -DCMAKE_BUILD_TYPE=Release
-#CC=clang HOSTCC=clang  ./configure --prefix=/usr
-#CXX=/usr/bin/g++ ./configure --prefix=$LNX/build-tools
-# NOT WITH DOCKER?   ./configure --prefix=/usr --no-system-libs
 make -j$LNX_CPU_CORES
 make install
 
@@ -944,14 +913,7 @@ LDFLAGS="-static" ../configure  --prefix=$LNX/build-tools \
     --disable-werror --without-zstd \
     --disable-multilib
 make -j$LNX_CPU_CORES LDFLAGS="-static"
-#cp $LNX/lib64/libc.so /lib64/
-#ln -s /usr/lib/ld-musl-aarch64.so.1 /lib64/libc.so
-#export LDFLAGS="-L$LNX/usr/lib -L$LNX/usr/lib64"
-#cp $LNX/usr/lib64/libz.so.q /usr/lib/
-# DO NOT INSTALL YET:
-#cd $LNX/SOURCE_CODE/binutils/binutils-build2
-#make install
-#yes|cp -v ../include/libiberty.h $LNX/usr/include
+# DO NOT INSTALL YET!!!
 
 
 #
@@ -1298,10 +1260,10 @@ export LD_LIBRARY_PATH="/MAKE_LNX/usr/lib"
 #diff -u $LNX/SOURCE_CODE/gcc2/libstdc++-v3/include/c_global/cfenv $LNX/SOURCE_CODE/gcc2/libstdc++-v3/include/c_global/cfenv_ORG > $LNX/SOURCE_CODE/gcc-cfenv-musl-fix.patch
 #diff -u $LNX/SOURCE_CODE/gcc2/libstdc++-v3/include/c_compatibility/fenv.h $LNX/SOURCE_CODE/gcc2/libstdc++-v3/include/c_compatibility/fenv.h_ORG > $LNX/SOURCE_CODE/gcc-fenv.h-musl-fix.patch
 #diff -u $LNX/SOURCE_CODE/gcc2/libstdc++-v3/include/tr1/cfenv $LNX/SOURCE_CODE/gcc2/libstdc++-v3/include/tr1/cfenv_ORG > $LNX/SOURCE_CODE/gcc-cfenv2-musl-fix.patch
-cp libstdc++-v3/config/locale/gnu/ctype_members.cc libstdc++-v3/config/locale/gnu/ctype_members.cc_ORG
-vi aarch64-linux-musl/libstdc++-v3/src/c++11/ctype_members.cc
-vi ./libstdc++-v3/config/locale/generic/ctype_members.cc
-diff -u libstdc++-v3/config/locale/gnu/ctype_members.cc libstdc++-v3/config/locale/gnu/ctype_members.cc_ORG > ../patch4.patch
+##cp libstdc++-v3/config/locale/gnu/ctype_members.cc libstdc++-v3/config/locale/gnu/ctype_members.cc_ORG
+##vi aarch64-linux-musl/libstdc++-v3/src/c++11/ctype_members.cc
+##vi ./libstdc++-v3/config/locale/generic/ctype_members.cc
+##diff -u libstdc++-v3/config/locale/gnu/ctype_members.cc libstdc++-v3/config/locale/gnu/ctype_members.cc_ORG > ../patch4.patch
 #patch -p1 < $LNX/SOURCE_CODE/gcc-cfenv-musl-fix.patch
 #patch -p1 < $LNX/SOURCE_CODE/gcc-fenv.h-musl-fix.patch
 #patch -p1 < $LNX/SOURCE_CODE/gcc-cfenv2-musl-fix.patch
@@ -1311,14 +1273,6 @@ patch -p1 < ../patch3.patch
 patch -p1 < ../patch4.patch
 patch -p1 < ../patch5.patch
 make -j$LNX_CPU_CORES
-#when the job breaks:
-#cp $LNX/SOURCE_CODE/gcc2/libstdc++-v3/config/locale/gnu/ctype_members.cc $LNX/SOURCE_CODE/gcc2/libstdc++-v3/config/locale/gnu/ctype_members.cc_ORG
-##cp aarch64-linux-musl/libstdc++-v3/src/c++11/ctype_members.cc  aarch64-linux-musl/libstdc++-v3/src/c++11/ctype_members.cc_ORG
-#vi $LNX/SOURCE_CODE/gcc2/libstdc++-v3/config/locale/gnu/ctype_members.cc
-#diff -u $LNX/SOURCE_CODE/gcc2/libstdc++-v3/config/locale/gnu/ctype_members.cc $LNX/SOURCE_CODE/gcc2/libstdc++-v3/config/locale/gnu/ctype_members.cc_ORG > ../patch5.patch
-#patch -p1 < ../patch5.patch
-#make -j$LNX_CPU_CORES
-
 # Install the native compiler to the LNX system
 make install
 # Install libgcc_s.so.1, because it's not saved otherwise. The old, incorrect one is never overwritten otherwise.
