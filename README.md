@@ -78,171 +78,210 @@ vi BUILD_SYSTEM.sh -> build only one package at a time and make sure it really c
 Finally, make the LNX core operating system bootable which is something you have to figure out yourself, instructions for this is NOT included, 
 only som ideas for you to get youreself started.
 
-
-
-
-
-
-An Architectural Analysis of the LNX Cross-Compilation and System Build Process
 LNX Build System: An Architectural Overview
-
-Detta dokument ger en djupgående teknisk analys av arkitekturen och byggprocessen för LNX, ett anpassat Linux-system byggt från källkod. Det beskriver de grundläggande koncepten, bootstrap-processen för cross-kompilatorn och hur systemavbildningen slutligen monteras.
+-------------------------------------------
+This document provides a deep technical analysis of the architecture and build process for LNX, a custom Linux system built from source. It describes the foundational concepts, the cross-compiler bootstrap process, and how the system image is finally assembled.
 
 1. Foundational Concepts
 
-För att förstå LNX byggskript är det viktigt att först förstå de grundläggande koncept som styr dess arkitektur.
+To understand the LNX build script, it is essential to first understand the foundational concepts that govern its architecture.
 
 1.1 The Cross-Compilation Paradigm
 
-Cross-kompilering innebär att man bygger programvara på ett system som är avsett att köras på ett annat. Processen använder en specifik terminologi för att definiera de inblandade maskinernas roller.
+Cross-compilation involves building software on one system that is intended to run on another. The process uses specific terminology to define the roles of the machines involved.
 
-    Build Machine: Datorn som utför själva kompileringen (t.ex. en utvecklares x86_64-arbetsstation).
+    Build Machine: The computer that performs the actual compilation (e.g., a developer's x86_64 workstation).
 
-    Host Machine: Systemet där den kompilerade binären kommer att köras. För de flesta program (som bash) är detta målenheten (t.ex. en ARM-baserad enhet).
+    Host Machine: The system where the compiled binary will execute. For most applications (like bash), this is the target device (e.g., an ARM-based device).
 
-    Target Machine: Endast relevant när man bygger en kompilator. Det specificerar arkitekturen som den nya kompilatorn i sin tur ska generera kod för.
+    Target Machine: Relevant only when building a compiler. It specifies the architecture for which the new compiler will, in turn, generate code.
 
-Dessa termers relativa betydelse är en vanlig källa till förvirring. Till exempel, när man bygger själva cross-kompilatorn (GCC):
+The relative meaning of these terms is a common source of confusion. For example, when building the cross-compiler itself (GCC):
 
-    Build: Utvecklarens PC.
+    Build: The developer's PC.
 
-    Host: Utvecklarens PC (eftersom kompilatorn körs här).
+    Host: The developer's PC (because the compiler runs here).
 
-    Target: Målenheten (t.ex. ARM).
+    Target: The final device (e.g., ARM).
 
-Men när den färdiga cross-kompilatorn sedan används för att bygga ett program som bash:
+But when that finished cross-compiler is then used to build an application like bash:
 
-    Build: Utvecklarens PC.
+    Build: The developer's PC.
 
-    Host: Målenheten (eftersom bash körs där).
+    Host: The final device (because bash will run there).
 
-    Target: Irrelevant för denna uppgift.
+    Target: Irrelevant for this task.
 
-LNX-skriptet hanterar detta genom att korrekt specificera flaggorna --build, --host och --target i varje steg.
+The LNX script manages this by correctly supplying the --build, --host, and --target flags at each stage.
 
 1.2 The Chroot-less Strategy: Build Isolation via Sysroot
 
-En definierande egenskap hos LNX är att den medvetet undviker chroot. Traditionella systembyggen använder ofta chroot för att skapa en sandlåda, vilket kräver root-privilegier.
+A defining feature of LNX is its deliberate avoidance of chroot. Traditional system builds often use chroot to create a sandbox, which requires root privileges.
 
-LNX använder istället det moderna alternativet --with-sysroot, en flagga till kompilatorn och länkaren. Istället för att ändra rotkatalogen för processen, talar --sysroot om för verktygskedjan var den ska leta efter systemets headers och bibliotek.
+LNX instead uses the modern alternative --with-sysroot, a flag passed to the compiler and linker. Instead of changing the process's root directory, --sysroot tells the toolchain where to find the target system's headers and libraries.
 
-Detta ger flera fördelar:
+This provides several advantages:
 
-    Säkerhet och privilegier: Hela byggprocessen kan köras som en vanlig användare, vilket minimerar säkerhetsriskerna.
+    Security and Privilege: The entire build process can be run as a non-privileged user, minimizing security risks.
 
-    Portabilitet och inkapsling: Hela målsystemet är fristående i en enda, flyttbar katalog.
+    Portability and Encapsulation: The entire target system is self-contained in a single, relocatable directory.
 
-    Parallellitet och moderna verktyg: Tillåter flera parallella byggen för olika arkitekturer och är kompatibelt med CI/CD-pipelines och container-miljöer som Docker.
+    Concurrency and Modern Tooling: It allows for multiple parallel builds for different architectures and is compatible with CI/CD pipelines and container environments like Docker.
 
 2. The Cross-Toolchain Bootstrap Process
 
-Att skapa en cross-kompilator är ett klassiskt "hönan och ägget"-problem. LNX löser detta genom en standardiserad flerstegsprocess.
+Creating a cross-compiler is a classic "chicken-and-egg" problem. LNX resolves this by following a standard, multi-stage process.
 
 2.1 Stage 1: The Cross-Binutils Prerequisite
 
-Det allra första steget är att bygga GNU Binutils. Detta är nödvändigt eftersom GCC producerar assemblerkod som måste hanteras av en assembler (as) och en länkare (ld), vilka båda är en del av Binutils.
+The very first step is to build the GNU Binutils package. This is necessary because GCC produces assembly code that must be handled by an assembler (as) and a linker (ld), both of which are part of Binutils.
 
-Kritiska configure-flaggor:
+Critical configure flags:
 
-    --target=$TARGET_TRIPLET: Talar om att vi bygger verktyg för en annan arkitektur.
+    --target=$TARGET_TRIPLET: Tells the build system to create tools for a different architecture.
 
-    --prefix=/path/to/tools: Installerar verktygen i en separat, säker katalog.
+    --prefix=/path/to/tools: Installs the tools into a separate, safe directory.
 
-    --with-sysroot=/path/to/lnx/rootfs: Bäddar in sökvägen till målets framtida filsystem i länkaren.
+    --with-sysroot=/path/to/lnx/rootfs: Embeds the path to the target's future filesystem into the linker.
 
-    --disable-nls: Inaktiverar språkstöd för att minska beroenden.
+    --disable-nls: Disables Native Language Support to reduce dependencies.
 
 2.2 Stage 2: The Multi-Phase GCC Build
 
-Med cross-länkaren och assemblern på plats kan bygget av GCC påbörjas.
+With the cross-linker and assembler in place, the GCC build can begin.
 
 2.2.1 Installing Kernel Headers
 
-Innan C-biblioteket kan byggas måste Linux-kärnans headers installeras i sysroot. Dessa definierar kärnans ABI (Application Binary Interface), som C-biblioteket (musl) är djupt beroende av.
+Before the C library can be built, the Linux kernel headers must be installed into the sysroot. These define the kernel's ABI (Application Binary Interface), which the C library (musl) is deeply dependent on.
 
 2.2.2 Building the Stage 1 "Bootstrap" C Compiler
 
-En minimal C-kompilator byggs. Dess enda syfte är att kunna kompilera musl. Eftersom musl inte finns än, måste denna kompilator byggas utan beroenden till det.
+A minimal C compiler is built. Its sole purpose is to compile musl. Since musl does not exist yet, this compiler must be built without a dependency on it.
 
-    --without-headers: Talar om för GCC att inte leta efter C-bibliotekets headers.
+    --without-headers: Instructs GCC not to look for C library headers.
 
-    --enable-languages=c: Bygger endast stöd för C för att spara tid.
+    --enable-languages=c: Builds support only for the C language to save time.
 
 2.2.3 Building the Target C Library (musl)
 
-Med Steg 1-kompilatorn kan nu målets C-bibliotek, musl, byggas. Till skillnad från Glibc, som är känt för en komplex konfiguration, är musl designat för enkelhet.
+With the Stage 1 compiler, the target's C library, musl, can now be built. Unlike Glibc, which is known for its complex configuration, musl is designed for simplicity.
 
-    --host=$TARGET_TRIPLET: Anger att musl självt kommer att köras på målsystemet.
+    --host=$TARGET_TRIPLET: Specifies that musl itself will run on the target system.
 
-    CC=${TARGET_TRIPLET}-gcc: Talar om att configure-skriptet måste använda den nyss byggda Steg 1-kompilatorn.
+    CC=${TARGET_TRIPLET}-gcc: Tells the configure script that it must use the newly built Stage 1 compiler.
 
 2.2.4 Building the Final Stage 2 C/C++ Compiler
 
-Slutligen byggs GCC en sista gång. Denna gång skapas en komplett C/C++ cross-kompilator som nu kan länka mot det fullständiga musl-biblioteket i sysroot.
+Finally, GCC is built one last time. This creates a complete C/C++ cross-compiler that can now link against the full musl library in the sysroot.
 
-    Flaggan --without-headers tas bort.
+    The --without-headers flag is removed.
 
-    --enable-languages=c,c++ aktiveras.
+    --enable-languages=c,c++ is activated.
 
-Bootstrap-processen i korthet
+Bootstrap Process Summary
 
-Stage	Package	Key configure Flags	Compiler Used	Primary Output/Purpose
-1	Binutils	--target, --with-sysroot	Build System GCC	Create cross-linker (ld) and cross-assembler (as).
-2a	Kernel Headers	(N/A - make headers_install)	(N/A)	Provide kernel ABI definitions in sysroot.
-2b	GCC (Stage 1)	--target, --without-headers, --enable-languages=c	Build System GCC	Create a minimal cross-compiler to build the C library.
-2c	musl	--host, --build, CC=	Stage 1 Cross-GCC	Build the complete C standard library for the target.
-2d	GCC (Stage 2)	--target, --enable-languages=c,c++	Build System GCC	Create the final, full-featured C/C++ cross-compiler.
+    Stage 1: Binutils
+
+        Package: Binutils
+
+        Key Flags: --target, --with-sysroot
+
+        Compiler Used: Build System GCC
+
+        Purpose: Create cross-linker (ld) and cross-assembler (as).
+
+    Stage 2a: Kernel Headers
+
+        Package: Kernel Headers
+
+        Action: make headers_install
+
+        Purpose: Provide kernel ABI definitions in sysroot.
+
+    Stage 2b: GCC (Stage 1)
+
+        Package: GCC
+
+        Key Flags: --target, --without-headers, --enable-languages=c
+
+        Compiler Used: Build System GCC
+
+        Purpose: Create a minimal cross-compiler to build the C library.
+
+    Stage 2c: musl
+
+        Package: musl
+
+        Key Flags: --host, --build, CC=
+
+        Compiler Used: Stage 1 Cross-GCC
+
+        Purpose: Build the complete C standard library for the target.
+
+    Stage 2d: GCC (Stage 2)
+
+        Package: GCC
+
+        Key Flags: --target, --enable-languages=c,c++
+
+        Compiler Used: Build System GCC
+
+        Purpose: Create the final, full-featured C/C++ cross-compiler.
 
 3. System Image Assembly
 
-När verktygskedjan är komplett, övergår skriptet till att bygga själva operativsystemet.
+Once the toolchain is complete, the script proceeds to build the operating system itself.
 
 3.1 The initramfs: Crafting the Initial Boot Environment
 
-initramfs är ett temporärt RAM-baserat filsystem som kärnan använder för att starta systemet och ladda drivrutiner som behövs för att montera det permanenta rotfilsystemet.
+The initramfs is a temporary RAM-based filesystem that the kernel uses to start the system and load drivers needed to mount the permanent root filesystem.
 
-Processen:
+The process:
 
-    En minimal katalogstruktur skapas (/bin, /lib, etc.).
+    A minimal directory structure is created (/bin, /lib, etc.).
 
-    Essentiella verktyg (från t.ex. BusyBox) kompileras som statiskt länkade binärer. Detta är extra effektivt i kombination med musl, som är optimerat för just detta.
+    Essential utilities (e.g., from BusyBox) are compiled as statically linked binaries. This is particularly effective in combination with musl, which is optimized for this.
 
-    Binärerna och nödvändiga kärnmoduler kopieras in.
+    The binaries and necessary kernel modules are copied into the structure.
 
-    Ett startskript, /init, skapas för att ladda moduler, montera rotfilsystemet och byta rot med switch_root.
+    A startup script, /init, is created to load modules, mount the root filesystem, and execute switch_root.
 
-    Allt paketeras i en komprimerad cpio-arkivfil.
+    Everything is packaged into a compressed cpio archive file.
 
 3.2 The Second Binutils Build: A Native Toolset
 
-Skriptet bygger Binutils en andra gång. Syftet är helt annorlunda: att skapa en nativ verktygskedja som körs på målenheten själv.
+The script builds Binutils a second time. The purpose is entirely different: to create a native toolchain designed to run on the target device itself.
 
-Denna gång används flaggan --host=$TARGET_TRIPLET. Byggsystemet förstår då att det ska cross-kompilera, och resultatet blir ARM-binärer (eller annan målarkitektur) istället för x86. Dessa verktyg (ld, as, etc.) installeras i det slutgiltiga rotfilsystemet och ger systemet förmågan att kompilera program direkt på enheten.
+This time, the --host=$TARGET_TRIPLET flag is used. The build system understands that this requires cross-compilation, and the result is ARM binaries (or other target architecture) instead of x86. These tools (ld, as, etc.) are installed into the final root filesystem, giving the system the ability to compile programs on-device.
 
 3.3 Final Root Filesystem Population
 
-Den sista fasen är att fylla rotfilsystemet med all återstående mjukvara (bash, coreutils, systemd, etc.). För varje paket:
+The final phase is to populate the root filesystem with all remaining software (bash, coreutils, systemd, etc.). For each package:
 
-    Körs configure med --host=$TARGET_TRIPLET.
+    configure is run with --host=$TARGET_TRIPLET.
 
-    Kompileras källkoden med cross-kompilatorn.
+    The source code is compiled with the cross-compiler.
 
-    Installeras filerna till sysroot-katalogen med DESTDIR-variabeln.
+    The files are installed into the sysroot directory using the DESTDIR variable.
 
 4. Architectural Highlights & Conclusion
 
 4.1 Process Viability
 
-Byggprocessen är robust och följer den beprövade standardmetodologin som används av projekt som Linux From Scratch och Buildroot. Den hanterar de cirkulära beroendena korrekt, och strategin med en dubbel binutils-kompilering är en logisk och korrekt implementation för att både bygga systemet och ge det "självbyggande" förmågor.
+The build process is robust and follows the proven, standard methodology used by projects like Linux From Scratch and Buildroot. It correctly handles the circular dependencies, and the dual binutils build strategy is a logical and correct implementation for both building the system and providing it with self-hosting capabilities.
 
 4.2 Advantages of the sysroot Model
 
-Valet att basera hela arkitekturen på sysroot är skriptets största styrka.
+The decision to base the architecture on sysroot is the script's greatest strength.
 
-    Säkerhet: Kräver inte root-privilegier.
+    Security: It does not require root privileges.
 
-    Enkelhet och portabilitet: Hela resultatet är inkapslat i en enda flyttbar katalog.
+    Simplicity and Portability: The entire output is encapsulated in a single, relocatable directory.
 
-    Parallellitet: Flera byggen kan köras samtidigt utan att störa varandra.
+    Concurrency: Multiple builds can run simultaneously without interfering with each other.
 
-    Kompatibilitet: Passar perfekt för moderna CI/CD-flöden och container-miljöer som Docker.
+    Compatibility: It is perfectly suited for modern CI/CD workflows and container environments like Docker.
+
+
+
+
