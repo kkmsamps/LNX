@@ -35,9 +35,12 @@ pause_for_review() {
 build_st_terminal() {
   log_step "st (Simple Terminal)"
   cd /SOURCE_CODE/st
-  cp config.def.h config.h
+  make clean
+#  cp config.def.h config.h
   # Apply scrollback patch
-  patch -p0 < ../st.patch
+  patch -p1 < ../st-scrollback-0.9.2.diff
+  patch -p1 < ../st-scrollback-mouse-0.9.2.diff
+  cp config.def.h config.h
   # Increase default font size
   sed -i.bak 's/pixelsize=12/pixelsize=20/' config.h
   sed -i 's|^PREFIX = /usr/local|PREFIX = /usr|' config.mk
@@ -278,6 +281,17 @@ build_crun() {
   make install
 }
 
+build_elfutils() {
+  log_step "elfutils"
+  cd /SOURCE_CODE/elfutils
+  make distclean || true
+  ./configure --prefix=/usr --disable-debuginfod --disable-libdebuginfod
+  make -j$LNX_CPU_CORES
+  make check
+  make install
+  install -vm644 config/libelf.pc /usr/lib/pkgconfig
+ }
+
 # --------------------------------------------------------------------------
 # MAIN EXECUTION BLOCK
 # --------------------------------------------------------------------------
@@ -335,5 +349,9 @@ pause_for_review "libcap"
 
 build_crun
 pause_for_review "crun"
+
+	## WILL NOT EASILY BUILD ON MUSL LIBC:
+##build_elfutils
+##pause_for_review "elfutils"
 
 log_step "🎉 ALL BUILDS IN THIS SCRIPT ARE COMPLETE! 🎉"
