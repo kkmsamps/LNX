@@ -498,12 +498,70 @@ UNTIL_STOP
 chmod 700 $LNX/etc/rc.d/rc.iptables
 
 cat > $LNX/etc/asound.conf << "UNTIL_STOP2"
-# Begin /etc/asound.conf
+# ===================================================================================
+# asound.conf: Optimized for low latency, full-duplex and shared access (dmix/dsnoop)
+# ===================================================================================
 
-defaults.pcm.card 0
-defaults.ctl.card 0
+# Ett alias för vårt hårdvarukort för att göra resten enklare
+pcm.hw_card {
+    type hw
+    card 0
+}
+ctl.hw_card {
+    type hw
+    card 0
+}
 
-# End /etc/asound.conf
+# 1. DEFINIERA EN DELAD UPPSpelningSENHET (dmix) - TUNED FOR LOW LATENCY
+pcm.dmix_out {
+    type dmix
+    ipc_key 1024      # Unikt ID för denna mixer
+    slave {
+        pcm "hw_card"
+        # ---- HÄR ÄR OPTIMERINGEN ----
+        # Mindre värden här = lägre latency, men högre CPU-last.
+        # Experimentera med dessa värden. 512/2048 är en bra start.
+        period_size 512
+        buffer_size 2048
+        # ----------------------------
+        rate 48000
+        channels 2
+    }
+}
+
+# 2. DEFINIERA EN DELAD INSPELNINGSENHET (dsnoop)
+pcm.dsnoop_in {
+    type dsnoop
+    ipc_key 1025      # Unikt ID, måste skilja sig från dmix
+    slave {
+        pcm "hw_card"
+        rate 48000
+        channels 2
+    }
+}
+
+# 3. KOMBINERA INSPELNING OCH UPPSPELNING TILL EN DUPLEX-ENHET
+# Detta är vad Ardour kommer att använda. "asym" betyder att uppspelning
+# och inspelning hanteras av olika (asymmetriska) under-enheter.
+pcm.duplex {
+    type asym
+    playback.pcm "dmix_out"
+    capture.pcm "dsnoop_in"
+}
+
+# 4. SÄTT VÅR NYA DUPLEX-ENHET SOM SYSTEM-STANDARD
+# Alla program som frågar efter "default" kommer nu att använda vår
+# låg-latency, delade duplex-enhet.
+pcm.!default {
+    type plug
+    slave.pcm "duplex"
+}
+
+# Se till att volymkontroller (amixer) fortfarande pratar direkt med hårdvaran.
+ctl.!default {
+    type hw
+    card 0
+}
 UNTIL_STOP2
 
 
@@ -1062,6 +1120,9 @@ check_status
 echo -n "Starting usb-audio: "
 modprobe snd-usb-audio
 check_status
+echo -n "Starting virtio-audio: "
+modprobe virtio_snd
+check_status
 echo -n "Starting mdev: "
 mdev -s
 check_status
@@ -1085,9 +1146,11 @@ sleep 5
 echo -n "Starting wlan0: "
 ifconfig wlan0 up
 check_status
+sleep 2
+echo -n "Starting eth0: "
 ifconfig eth0 up
 check_status
-sleep 2
+sleep 1
 echo -n "Connecting to WiFi: "
 wpa_supplicant -Dnl80211 -iwlan0 -c/etc/sysconfig/wpa_supplicant-wlan0.conf &
 check_status
