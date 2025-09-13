@@ -12,10 +12,10 @@ setxkbmap -model pc105 -layout se -variant nodeadkeys
 
 # REMOVE IF NEEDED:
 podman stop chromium-container
-podman rm chromium-container 
+podman rm chromium-container
 
-
-# RUN THE CONTAINER: 
+# THIS IS THE ONE TO USE with rootless podman and RT prio:
+# RUN THE CONTAINER:
 podman run -d --network=host --cap-add=sys_nice \
 --name chromium-container -e DISPLAY=$DISPLAY -v /dev/snd:/dev/snd \
 -v /dev/dri:/dev/dri -v /home/user/asound.conf:/etc/asound.conf:ro \
@@ -25,13 +25,13 @@ podman run -d --network=host --cap-add=sys_nice \
 -v ~/:/root/Downloads \
 --security-opt label=disable \
 --shm-size="2gb" \
-chromium-image:rt sleep infinity 
+chromium-image:rt sleep infinity
 
 # USE THE CONTAINER:
 podman start chromium-container
 podman exec -it chromium-container /bin/bash
 
-# OCH SOM ROOT, FÖR ARDOUR som kräver rt:
+CH SOM ROOT, F..R ARDOUR som kr..ver rt:
 su -
 podman run -d --network=host --cap-add=sys_nice \
 --ulimit rtprio=95 --ulimit memlock=-1 \
@@ -44,4 +44,20 @@ podman run -d --network=host --cap-add=sys_nice \
 --security-opt label=disable \
 --shm-size="2gb" \
 chromium-image:rt sleep infinity
+
+# OCH SOM ROOT, F..R ARDOUR som kr..ver rt:
+su -
+podman run -d --network=host --cap-add=sys_nice \
+--ulimit rtprio=95 --ulimit memlock=-1 \
+--name chromium-container-rt -e DISPLAY=$DISPLAY -v /dev/snd:/dev/snd \
+-v /dev/dri:/dev/dri -v /home/user/asound.conf:/etc/asound.conf:ro \
+-v /home/user/.Xauthority:/home/user/.Xauthority:Z \
+-e XAUTHORITY=/home/user/.Xauthority \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/:/root/Downloads \
+--security-opt label=disable \
+--shm-size="2gb" \
+chromium-image:rt sleep infinity
+
+
 

@@ -19,6 +19,6 @@ dnf install firefox -y
 
 # In a new windo *BEFORE THE FIST HAS EXITED*
 # podman ps ( hitta id)
-# podman commit <container-id> chromium-image:latest
+# podman commit <container-id> chromium-image:rt
 # close the first podman session with> exit
 
