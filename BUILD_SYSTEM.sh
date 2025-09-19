@@ -49,7 +49,7 @@ export LNX=/MAKE_LNX
 #mkdir -p $LNX/SOURCE_CODE/LLVM
 export LNX_VERSION=2025.10_musl
 export LNX_KERNEL_VERSION=6.6.100
-export LNX_SOURCE_DIRECTORY=/home/user/Downloads/LNX${LNX_VERSION}
+export LNX_SOURCE_DIRECTORY=/home/user/Downloads/LNX
 # LNX checks for the target architecture
 if [ $(uname -m) == "aarch64" ];
 then
@@ -567,6 +567,7 @@ UNTIL_STOP2
 
 
 # COPY A PREDEFINED MENU FOR FLUXBOX/TWM:
+mkdir $LNX/SOURCE_CODE
 cp $LNX_SOURCE_DIRECTORY/files/PODMAN* $LNX/home/user/
 cp $LNX_SOURCE_DIRECTORY/files/asound.conf $LNX/home/user/
 cp $LNX_SOURCE_DIRECTORY/files/START $LNX/root/
@@ -1397,8 +1398,8 @@ mknod /dev/vda b 252 0 # VirtIO disks have major number 252
 mknod /dev/nvme0n1 b 259 0 # For nvme disks I make this node...
 
 # Mount the real root filesystem (read-only to begin with)
-#mount -o ro /dev/vda3 /mnt
-mount -o ro /dev/nvme0n1p6 /mnt
+mount -o ro /dev/vda3 /mnt
+#mount -o ro /dev/nvme0n1p6 /mnt
 
 # Clean up
 umount /proc
@@ -1482,15 +1483,19 @@ grub2-mkconfig -o /boot/grub2/grub.cfg
 
 OR: FOR ARM64, DO THIS IN THE QEMU BOOTLOADER:
 ===========================================
+# Get Fedora machine-id:
+cat /etc/machine-id
+ada1319ea6f54481812e84ef67c9655b
 # Get the blockid for the disk where LNX is located:
 blkid /dev/vda3
-/dev/vda3: UUID="8dc27b24-287a-436f-b9b8-11098f07a4e3" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="952f1861-9c59-4ff7-b871-aed4dd35d7d9"
+#/dev/vda3: UUID="8dc27b24-287a-436f-b9b8-11098f07a4e3" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="952f1861-9c59-4ff7-b871-aed4dd35d7d9"
+/dev/vda3: UUID="28bb3e9b-eb91-4b5a-9f42-51cedb531475" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="57908851-3ff3-4a05-a342-910b6718456e"
 
 cd /boot/loader/entries/
 vi /boot/loader/entries/custom-otheros.conf
 title   LNX Linux
 version 2025.10_musl
-machine-id 0c22a480fafd4947af68ec7cea707e0c
+machine-id ada1319ea6f54481812e84ef67c9655b
 linux   /boot/vmlinuz-6.6.100-arm64
 initrd /boot/initramfs-lnx-aarch64.img
 options root=UUID=8dc27b24-287a-436f-b9b8-11098f07a4e3 ro
