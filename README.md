@@ -21,7 +21,7 @@ Authentication: A modern and secure login stack using Linux-PAM and Shadow.
 
 Graphical Stack: A full, manually compiled X.org environment, including the server, libraries, and input drivers.
 
-Window Manager: A choice of classic, lightweight window managers like twm or Fluxbox, configured for a modern workflow.
+Window Manager: A classic, lightweight window manager: twm, configured for a modern workflow.
 
 Audio: A functional "bare metal" ALSA sound system, configured with dmix for software mixing to support modern applications.
 
