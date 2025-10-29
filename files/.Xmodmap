@@ -1,0 +1,13 @@
+clear Mod1
+clear Mod5
+keycode 64 = Mode_switch
+keycode 108 = Alt_L Meta_L
+keycode 198 = Up
+keycode 204 = Down
+keycode 200 = Left
+keycode 201 = Right
+keycode 13 = 4 currency dollar sterling
+keycode 16 = 7 slash braceleft
+keycode 19 = 0 equal braceright
+keycode 94=less greater bar
+

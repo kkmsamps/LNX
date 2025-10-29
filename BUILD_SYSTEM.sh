@@ -568,6 +568,9 @@ UNTIL_STOP2
 
 # COPY A PREDEFINED MENU FOR FLUXBOX/TWM:
 mkdir $LNX/SOURCE_CODE
+cp -f $LNX_SOURCE_DIRECTORY/BU* $LNX/SOURCE_CODE/
+cp $LNX_SOURCE_DIRECTORY/files/patch* $LNX/SOURCE_CODE/
+cp $LNX_SOURCE_DIRECTORY/files/yajl* $LNX/SOURCE_CODE/
 cp $LNX_SOURCE_DIRECTORY/files/PODMAN* $LNX/home/user/
 cp $LNX_SOURCE_DIRECTORY/files/asound.conf $LNX/home/user/
 cp $LNX_SOURCE_DIRECTORY/files/START $LNX/root/
@@ -848,11 +851,13 @@ ln -sf libncursesw.so.6 libncurses.so
 
 # Compile AUTOCONF
 # Must build with build-tools now!
+# If compiling on Fedora 42, PERL=/isr/bin/perl is needed as the LNX PATH has /usr/sbin before /usr/bin
+# and Fedora uses /usr/sbin AND /usr/bin for perl installations
 cd $LNX/SOURCE_CODE/autoconf
 make distclean
 AR="$LNX_TARGET-ar" LDFLAGS="-Wl,-rpath,$LNX/lib64" \
 BUILD_CC="$LNX_TARGET-gcc" CC="$LNX_TARGET-gcc" \
-./configure --prefix=/usr
+PERL=/usr/bin/perl ./configure --prefix=/usr
 make -j$LNX_CPU_CORES
 make DESTDIR=$LNX install
 
